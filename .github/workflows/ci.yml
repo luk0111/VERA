@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Vera.slnx
+
+      - name: Build
+        run: dotnet build Vera.slnx -c Release --no-restore
+
+      # Integration tests (real app / desktop session / model) are marked [Trait("Category", "Integration")].
+      # Exit code 8 = "no tests ran"; allowed while the test projects are still empty.
+      - name: Unit tests
+        run: dotnet test --solution Vera.slnx -c Release --no-build -- --filter-not-trait "Category=Integration" --ignore-exit-code 8

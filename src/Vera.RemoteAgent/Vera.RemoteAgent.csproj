@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>$(VeraWindowsTfm)</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Vera.Adapters.Desktop/Vera.Adapters.Desktop.csproj" />
+    <ProjectReference Include="../Vera.Protos/Vera.Protos.csproj" />
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+
+</Project>

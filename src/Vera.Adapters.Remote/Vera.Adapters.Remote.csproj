@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(VeraTfm)</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
+    <ProjectReference Include="../Vera.Protos/Vera.Protos.csproj" />
+    <PackageReference Include="Grpc.Net.Client" />
+  </ItemGroup>
+
+</Project>
