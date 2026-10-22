@@ -30,7 +30,7 @@ while (true)
             SettingsScreen.Show(settings);
             break;
         case MainMenuOption.Exit:
-            AnsiConsole.MarkupLine("[grey]Bye.[/]");
+            AnsiConsole.MarkupLine("[grey]Booted off.[/]");
             return;
     }
 }
