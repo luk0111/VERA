@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Vulnerable-package warnings stay visible but don't block the build. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+
+    <Authors>VERA team</Authors>
+    <Company>Siemens</Company>
+    <Product>VERA - Verified Execution &amp; Replay Agent</Product>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Target frameworks used across the solution (see docs/plans/02). -->
+    <VeraTfm>net10.0</VeraTfm>
+    <VeraWindowsTfm>net10.0-windows10.0.19041.0</VeraWindowsTfm>
+  </PropertyGroup>
+</Project>
