@@ -1,0 +1,8 @@
+// Win32 APIs that CsWin32 generates P/Invoke code for (internal, in Windows.Win32.PInvoke).
+
+// DPI awareness (M1.5)
+GetThreadDpiAwarenessContext
+GetAwarenessFromDpiAwarenessContext
+AreDpiAwarenessContextsEqual
+SetProcessDpiAwarenessContext
+DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2

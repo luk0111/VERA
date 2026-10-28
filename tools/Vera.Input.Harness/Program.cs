@@ -8,6 +8,7 @@ using Spectre.Console.Cli;
 using Vera.Input;
 using Vera.Input.Harness;
 using Vera.Input.Harness.Commands;
+using Vera.Input.Platform;
 
 try
 {
@@ -24,7 +25,7 @@ try
     {
         config.SetApplicationName("Vera.Input.Harness");
         config.PropagateExceptions();
-        config.AddCommand<InfoCommand>("info").WithDescription("Prints the effective VeraInput configuration.");
+        config.AddCommand<InfoCommand>("info").WithDescription("Prints the DPI awareness and the effective VeraInput configuration.");
     });
 
     return await app.RunAsync(args);
@@ -33,5 +34,10 @@ catch (Exception e) when (e is HarnessConfigurationException or InvalidDataExcep
 {
     var message = e is InvalidDataException ? $"appsettings.json could not be read: {e.InnerException?.Message ?? e.Message}" : e.Message;
     AnsiConsole.MarkupLine($"[red]Configuration error:[/] {Markup.Escape(message)}");
+    return 1;
+}
+catch (DpiAwarenessException e)
+{
+    AnsiConsole.MarkupLine($"[red]DPI error:[/] {Markup.Escape(e.Message)}");
     return 1;
 }
