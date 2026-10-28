@@ -78,7 +78,9 @@ internal static class SettingsScreen
             .BorderColor(Color.Grey)
             .AddColumns("Setting", "Value")
             .AddRow("Model", $"[teal]{Markup.Escape(settings.Model)}[/]")
-            .AddRow("API key", settings.IsApiKeyConnected ? "[green]Connected[/]" : "[yellow]Not connected[/]")
+            .AddRow("API key", settings.IsLocalModel
+                ? "[grey]Not needed (local)[/]"
+                : settings.IsApiKeyConnected ? "[green]Connected[/]" : "[yellow]Not connected[/]")
             .AddRow("Max steps per test", settings.MaxStepsPerTest.ToString(System.Globalization.CultureInfo.InvariantCulture))
             .AddRow("Ask before risky actions", YesNo(settings.AskBeforeRiskyActions))
             .AddRow("Save screenshots", YesNo(settings.SaveScreenshots));

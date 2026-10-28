@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Spectre.Console;
+using Vera.Application;
 
 namespace Vera.Cli.Screens;
 
@@ -9,14 +10,14 @@ internal static class StartTestScreen
     private static readonly RunningApp Refresh = new(-1, "Refresh list", string.Empty);
     private static readonly RunningApp Back = new(-2, "Back", string.Empty);
 
-    public static void Show(AppSettings settings)
+    public static async Task ShowAsync(AppSettings settings, Func<ChatSession> newChatSession)
     {
         while (true)
         {
             Ui.ShowHeader(settings);
             Ui.Title("Start testing an app");
 
-            if (!settings.IsApiKeyConnected)
+            if (!settings.IsLocalModel && !settings.IsApiKeyConnected)
             {
                 AnsiConsole.MarkupLine("[yellow]No API key connected yet.[/] [grey]You can add one in Settings.[/]");
                 AnsiConsole.WriteLine();
@@ -51,7 +52,7 @@ internal static class StartTestScreen
                 continue;
             }
 
-            ChatScreen.Show(settings, choice);
+            await ChatScreen.ShowAsync(settings, choice, newChatSession());
             return;
         }
     }
