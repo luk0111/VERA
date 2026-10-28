@@ -17,6 +17,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Vera.Agent.Tests/Vera.Agent.Tests.csproj" />
+    <Project Path="tests/Vera.Application.Tests/Vera.Application.Tests.csproj" />
     <Project Path="tests/Vera.Core.Tests/Vera.Core.Tests.csproj" />
     <Project Path="tests/Vera.Llm.Tests/Vera.Llm.Tests.csproj" />
   </Folder>
