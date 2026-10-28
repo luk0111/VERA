@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
+using Vera.Input.Capture;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 
@@ -25,6 +27,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDpiAwarenessCheck, DpiAwarenessCheck>();
         services.AddSingleton<IDisplayInfo, Win32DisplayInfo>();
         services.AddSingleton<IDisplayCheck, DisplayCheck>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IScreenGrabber, GdiScreenGrabber>();
         return services;
     }
 }

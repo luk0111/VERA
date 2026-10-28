@@ -30,7 +30,9 @@ try
     {
         config.SetApplicationName("Vera.Input.Harness");
         config.PropagateExceptions();
+        config.UseStrictParsing();
         config.AddCommand<InfoCommand>("info").WithDescription("Prints the DPI awareness and the effective VeraInput configuration.");
+        config.AddCommand<ScreenshotCommand>("screenshot").WithDescription("Saves a screenshot of the capture monitor as a PNG.");
     });
 
     return await app.RunAsync(args);
@@ -49,5 +51,19 @@ catch (DpiAwarenessException e)
 catch (DisplayMismatchException e)
 {
     AnsiConsole.MarkupLine($"[red]Display error:[/] {Markup.Escape(e.Message)}");
+    return 1;
+}
+catch (CommandAppException e)
+{
+    // A wrong command or option, e.g. "--delay -1". PropagateExceptions would otherwise show it as a crash.
+    if (e.Pretty is not null)
+    {
+        AnsiConsole.Write(e.Pretty);
+    }
+    else
+    {
+        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(e.Message)}");
+    }
+
     return 1;
 }
