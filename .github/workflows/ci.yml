@@ -2,10 +2,43 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta, internal]
   pull_request:
 
 jobs:
+  # Branch flow: working branches -> internal -> beta -> main (releases only).
+  # Only beta (or a fix/ hotfix) may go into main, and only internal (or main, after a hotfix) into beta.
+  # Runs on every PR so it can be a required check; PRs into internal always pass.
+  pr-source:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the PR's source branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$BASE" != "main" ] && [ "$BASE" != "beta" ]; then
+            echo "PR into '$BASE': no source rule."
+            exit 0
+          fi
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "::error::PRs into '$BASE' must come from a branch of $REPO, not from a fork."
+            exit 1
+          fi
+          case "$BASE:$HEAD" in
+            main:beta | main:fix/*) ;;
+            beta:internal | beta:main) ;;
+            *)
+              echo "::error::'$HEAD' cannot be merged into '$BASE'. Flow: working branch -> internal -> beta -> main (hotfixes: fix/* -> main)."
+              exit 1
+              ;;
+          esac
+          echo "'$HEAD' -> '$BASE' is allowed."
+
+
   build-and-test:
     runs-on: windows-latest
     steps:
