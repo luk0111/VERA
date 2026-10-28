@@ -2,6 +2,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using Serilog;
+
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -15,6 +17,9 @@ try
     // No Args: the command line belongs to Spectre.Console.Cli, not to the configuration.
     var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { ContentRootPath = AppContext.BaseDirectory });
     builder.Services.Configure<ConsoleLifetimeOptions>(o => o.SuppressStatusMessages = true);
+
+    // Sinks and levels come from the "Serilog" section of appsettings.json (warnings on the console, everything in logs/).
+    builder.Services.AddSerilog((services, logger) => logger.ReadFrom.Configuration(builder.Configuration).ReadFrom.Services(services));
 
     // "Hosting failed to start" would repeat the error below with a stack trace; the exception still reaches the catch.
     builder.Logging.AddFilter("Microsoft.Extensions.Hosting.Internal.Host", LogLevel.None);
