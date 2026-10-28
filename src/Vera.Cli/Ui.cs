@@ -13,10 +13,34 @@ internal static class Ui
         AnsiConsole.Write(new FigletText("VERA").Color(Color.Teal));
         AnsiConsole.MarkupLine("[grey]Verified Execution & Replay Agent[/]");
 
-        var api = settings.IsApiKeyConnected ? "[green]connected[/]" : "[yellow]not connected[/]";
-        AnsiConsole.MarkupLine($"Model: [teal]{Markup.Escape(settings.Model)}[/]   API: {api}");
+        if (settings.IsLocalModel)
+        {
+            AnsiConsole.MarkupLine(LocalModelStatus(settings));
+        }
+        else
+        {
+            var api = settings.IsApiKeyConnected ? "[green]connected[/]" : "[yellow]not connected[/]";
+            AnsiConsole.MarkupLine($"Model: [teal]{Markup.Escape(settings.Model)}[/]   API: {api}");
+        }
+
         AnsiConsole.Write(new Rule().RuleStyle(Color.Grey));
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>The local model's last known status, e.g. "Connected to: Local · qwen3-vl:8b". Makes no network call.</summary>
+    private static string LocalModelStatus(AppSettings settings)
+    {
+        var model = settings.LocalModel is { } local
+            ? Markup.Escape($"{local.DisplayName} · {local.Model}")
+            : Markup.Escape(settings.Model);
+
+        return settings.ConnectionState switch
+        {
+            ConnectionState.Connected => $"[green]Connected to: {model}[/]",
+            ConnectionState.Unreachable => $"[red]{model}  Ollama is not running[/]",
+            ConnectionState.ModelMissing => $"[yellow]{model}  model not installed[/]",
+            _ => $"[grey]{model}  (not checked yet)[/]",
+        };
     }
 
     public static void Title(string title)
