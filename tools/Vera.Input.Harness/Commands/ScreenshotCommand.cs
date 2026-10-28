@@ -1,20 +1,14 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.Globalization;
-using System.Runtime.InteropServices;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
 
-using Vera.Input.Capture;
-using Vera.Input.Platform;
-
 namespace Vera.Input.Harness.Commands;
 
-/// <summary>Copies the capture monitor and saves it as a PNG.</summary>
-internal sealed class ScreenshotCommand(IDisplayCheck displayCheck, IScreenGrabber grabber, TimeProvider timeProvider)
+/// <summary>Takes a screenshot through <see cref="IScreenshotSource"/> and saves the PNG. Timings go to the log.</summary>
+internal sealed class ScreenshotCommand(IScreenshotSource screen, TimeProvider timeProvider)
     : AsyncCommand<ScreenshotCommand.Settings>
 {
     internal sealed class Settings : CommandSettings
@@ -33,8 +27,6 @@ internal sealed class ScreenshotCommand(IDisplayCheck displayCheck, IScreenGrabb
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        var bounds = displayCheck.Run().CaptureMonitor.Bounds;
-
         for (var left = settings.Delay; left > 0; left--)
         {
             AnsiConsole.MarkupLine($"[grey]Taking the screenshot in {left}…[/]");
@@ -42,31 +34,18 @@ internal sealed class ScreenshotCommand(IDisplayCheck displayCheck, IScreenGrabb
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var frame = grabber.Grab(bounds);
-        var grabMs = stopwatch.ElapsedMilliseconds;
+        var frame = await screen.ScreenshotAsync(ct: cancellationToken);
+        var totalMs = stopwatch.ElapsedMilliseconds;
 
         var path = Path.GetFullPath(settings.Out ?? Path.Combine(
             "runs", "manual", frame.CapturedAt.ToLocalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".png"));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        SavePng(frame, path);
+        await File.WriteAllBytesAsync(path, frame.Png, cancellationToken);
 
         AnsiConsole.MarkupLine($"Saved [green]{Markup.Escape(path)}[/]");
-        AnsiConsole.MarkupLine($"{frame.Width}×{frame.Height} from {Markup.Escape(frame.Bounds.ToString())}, grab {grabMs} ms, {new FileInfo(path).Length / 1024} KB");
+        AnsiConsole.MarkupLine(
+            $"Frame {frame.Sequence}: {frame.Width}×{frame.Height} (screen {frame.ScreenWidth}×{frame.ScreenHeight}, scale {frame.Scale.ToString(CultureInfo.InvariantCulture)}), " +
+            $"{frame.Png.Length / 1024} KB, {totalMs} ms");
         return 0;
-    }
-
-    // Temporary until step 2.2 adds the frame encoder to Vera.Input.
-    private static void SavePng(RawFrame frame, string path)
-    {
-        var handle = GCHandle.Alloc(frame.Bgra, GCHandleType.Pinned);
-        try
-        {
-            using var bitmap = new Bitmap(frame.Width, frame.Height, frame.Stride, PixelFormat.Format32bppRgb, handle.AddrOfPinnedObject());
-            bitmap.Save(path, ImageFormat.Png);
-        }
-        finally
-        {
-            handle.Free();
-        }
     }
 }

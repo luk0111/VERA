@@ -29,6 +29,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDisplayCheck, DisplayCheck>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IScreenGrabber, GdiScreenGrabber>();
+        services.AddSingleton<IFrameEncoder, GdiPngFrameEncoder>();
+
+        // One instance behind both interfaces, so the frame sequence is shared. IPointer and IKeyboard follow with M4–M6.
+        services.AddSingleton<DesktopScreen>();
+        services.AddSingleton<IScreen>(sp => sp.GetRequiredService<DesktopScreen>());
+        services.AddSingleton<IScreenshotSource>(sp => sp.GetRequiredService<DesktopScreen>());
         return services;
     }
 }
