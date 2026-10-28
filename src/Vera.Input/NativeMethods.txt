@@ -6,3 +6,12 @@ GetAwarenessFromDpiAwarenessContext
 AreDpiAwarenessContextsEqual
 SetProcessDpiAwarenessContext
 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+
+// Display info (M1.6)
+GetSystemMetrics
+EnumDisplayMonitors
+GetMonitorInfo
+MONITORINFOEXW
+MONITORINFOF_PRIMARY
+GetDpiForMonitor
+EnumDisplaySettings

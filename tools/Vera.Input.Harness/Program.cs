@@ -41,3 +41,8 @@ catch (DpiAwarenessException e)
     AnsiConsole.MarkupLine($"[red]DPI error:[/] {Markup.Escape(e.Message)}");
     return 1;
 }
+catch (DisplayMismatchException e)
+{
+    AnsiConsole.MarkupLine($"[red]Display error:[/] {Markup.Escape(e.Message)}");
+    return 1;
+}

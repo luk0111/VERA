@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<VeraInputOptions>, VeraInputOptionsValidator>();
         services.AddSingleton<IDpiAwarenessCheck, DpiAwarenessCheck>();
+        services.AddSingleton<IDisplayInfo, Win32DisplayInfo>();
+        services.AddSingleton<IDisplayCheck, DisplayCheck>();
         return services;
     }
 }
