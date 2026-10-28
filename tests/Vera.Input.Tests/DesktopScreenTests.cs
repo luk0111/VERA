@@ -1,8 +1,10 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Vera.Input.Capture;
 using Vera.Input.Options;
 using Vera.Input.Platform;
+using Vera.Input.Session;
 
 using MsOptions = Microsoft.Extensions.Options.Options;
 
@@ -14,6 +16,7 @@ public sealed class DesktopScreenTests
     private static readonly DateTimeOffset Time = new(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
 
     private readonly IDisplayCheck _displayCheck = Substitute.For<IDisplayCheck>();
+    private readonly ISessionGuard _guard = Substitute.For<ISessionGuard>();
     private readonly IScreenGrabber _grabber = Substitute.For<IScreenGrabber>();
     private readonly IFrameValidator _validator = Substitute.For<IFrameValidator>();
     private readonly IFrameEncoder _encoder = Substitute.For<IFrameEncoder>();
@@ -116,11 +119,84 @@ public sealed class DesktopScreenTests
         (await screen.ScreenshotAsync(ct: Ct)).Sequence.ShouldBe(1);
     }
 
-    private DesktopScreen Screen(CaptureOptions? capture = null) => new(
+    [Fact]
+    public async Task The_session_guard_runs_before_the_grab_with_the_capture_monitor()
+    {
+        await Screen().ScreenshotAsync(ct: Ct);
+
+        Received.InOrder(() =>
+        {
+            _guard.EnsureReady(Monitor.Bounds);
+            _grabber.Grab(Monitor.Bounds);
+        });
+    }
+
+    [Fact]
+    public async Task When_the_guard_refuses_nothing_is_grabbed()
+    {
+        _guard.When(g => g.EnsureReady(Arg.Any<ScreenRect>()))
+            .Do(_ => throw new ScreenUnavailableException(ScreenUnavailableReason.RdpWindowMinimized, "minimized"));
+
+        var e = await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ScreenshotAsync(ct: Ct));
+
+        e.Reason.ShouldBe(ScreenUnavailableReason.RdpWindowMinimized);
+        _grabber.DidNotReceive().Grab(Arg.Any<ScreenRect>());
+    }
+
+    [Fact]
+    public async Task Identical_frames_warn_once_when_the_limit_is_reached()
+    {
+        var logger = new RecordingLogger();
+        var screen = Screen(new CaptureOptions { StaleWarningAfterIdenticalFrames = 2 }, logger);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await screen.ScreenshotAsync(ct: Ct);
+        }
+
+        logger.Warnings.ShouldHaveSingleItem().ShouldContain("last 3 screenshots (up to 3) are identical");
+    }
+
+    [Fact]
+    public async Task A_changed_frame_resets_the_identical_count()
+    {
+        var logger = new RecordingLogger();
+        var screen = Screen(new CaptureOptions { StaleWarningAfterIdenticalFrames = 2 }, logger);
+        var calls = 0;
+        _grabber.Grab(Arg.Any<ScreenRect>()).Returns(call => new RawFrame(call.Arg<ScreenRect>(), [(byte)(calls++ / 2)], Time));
+
+        for (var i = 0; i < 6; i++)
+        {
+            await screen.ScreenshotAsync(ct: Ct);
+        }
+
+        logger.Warnings.ShouldBeEmpty();
+    }
+
+    private DesktopScreen Screen(CaptureOptions? capture = null, ILogger<DesktopScreen>? logger = null) => new(
         _displayCheck,
+        _guard,
         _grabber,
         _validator,
         _encoder,
         MsOptions.Create(new VeraInputOptions { Capture = capture ?? new CaptureOptions() }),
-        NullLogger<DesktopScreen>.Instance);
+        logger ?? NullLogger<DesktopScreen>.Instance);
+
+    private sealed class RecordingLogger : ILogger<DesktopScreen>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+    }
 }

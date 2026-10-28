@@ -8,6 +8,9 @@ public enum ScreenUnavailableReason
     RdpWindowNotForeground,
     WorkstationLocked,
     NoInteractiveSession,
+
+    /// <summary>The RDP window is in front but doesn't fill the capture monitor (e.g. not full screen).</summary>
+    RdpWindowNotCoveringScreen,
 }
 
 /// <summary>The screen can't be seen or controlled right now. The run should stop rather than retry blindly.</summary>

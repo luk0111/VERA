@@ -10,6 +10,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vera.Input.Tests" />
+    <!-- Lets NSubstitute create fakes of internal interfaces (e.g. ISessionProbe) in the tests. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 
   <ItemGroup>

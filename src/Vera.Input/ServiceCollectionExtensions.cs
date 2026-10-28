@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Vera.Input.Capture;
 using Vera.Input.Options;
 using Vera.Input.Platform;
+using Vera.Input.Session;
 
 namespace Vera.Input;
 
@@ -29,6 +30,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDisplayCheck, DisplayCheck>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IScreenGrabber, GdiScreenGrabber>();
+        services.AddSingleton<ISessionProbe, Win32SessionProbe>();
+        services.AddSingleton<ISessionGuard, SessionGuard>();
         services.AddSingleton<IFrameValidator, BlackFrameValidator>();
         services.AddSingleton<IFrameEncoder, GdiPngFrameEncoder>();
 

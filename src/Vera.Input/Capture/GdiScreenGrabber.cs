@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -9,6 +10,8 @@ namespace Vera.Input.Capture;
 /// <summary>Copies the screen with GDI (<see cref="Graphics.CopyFromScreen(int, int, int, int, Size, CopyPixelOperation)"/>).</summary>
 internal sealed class GdiScreenGrabber(TimeProvider timeProvider) : IScreenGrabber
 {
+    private const int ErrorInvalidHandle = 6;
+
     public RawFrame Grab(ScreenRect bounds)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(bounds.Width, 1, nameof(bounds));
@@ -17,10 +20,21 @@ internal sealed class GdiScreenGrabber(TimeProvider timeProvider) : IScreenGrabb
         using var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
-            // CopyFromScreen rejects SourceCopy | CaptureBlt, so local layered windows (e.g. tooltips) may be missing.
-            // Over RDP everything on the remote is drawn inside the mstsc window, which is captured normally.
-            graphics.CopyFromScreen(
-                bounds.Left, bounds.Top, 0, 0, new Size(bounds.Width, bounds.Height), CopyPixelOperation.SourceCopy);
+            try
+            {
+                // CopyFromScreen rejects SourceCopy | CaptureBlt, so local layered windows (e.g. tooltips) may be missing.
+                // Over RDP everything on the remote is drawn inside the mstsc window, which is captured normally.
+                graphics.CopyFromScreen(
+                    bounds.Left, bounds.Top, 0, 0, new Size(bounds.Width, bounds.Height), CopyPixelOperation.SourceCopy);
+            }
+            catch (Win32Exception e) when (e.NativeErrorCode == ErrorInvalidHandle)
+            {
+                // The screen went away between the session guard's check and the copy.
+                throw new ScreenUnavailableException(
+                    ScreenUnavailableReason.WorkstationLocked,
+                    "Windows refused to copy the screen (the handle is invalid). The machine is probably locked or the session disconnected.",
+                    e);
+            }
         }
 
         var capturedAt = timeProvider.GetUtcNow();
