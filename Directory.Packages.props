@@ -19,6 +19,7 @@
 
   <ItemGroup Label="LLM abstraction (providers are added with the model work)">
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.5.0" />
   </ItemGroup>
 
   <ItemGroup Label="App adapters">
