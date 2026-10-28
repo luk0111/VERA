@@ -17,6 +17,7 @@ namespace Vera.Input;
 internal sealed partial class DesktopScreen(
     IDisplayCheck displayCheck,
     IScreenGrabber grabber,
+    IFrameValidator validator,
     IFrameEncoder encoder,
     IOptions<VeraInputOptions> options,
     ILogger<DesktopScreen> logger) : IScreen
@@ -63,6 +64,16 @@ internal sealed partial class DesktopScreen(
         var raw = grabber.Grab(bounds);
         var grabMs = stopwatch.ElapsedMilliseconds;
 
+        try
+        {
+            validator.Validate(raw);
+        }
+        catch (ScreenUnavailableException e)
+        {
+            LogRejected(logger, e.Reason, e.Message);
+            throw;
+        }
+
         stopwatch.Restart();
         var image = encoder.Encode(raw, scale);
         var encodeMs = stopwatch.ElapsedMilliseconds;
@@ -91,4 +102,7 @@ internal sealed partial class DesktopScreen(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Screenshot {Sequence}: {Width}×{Height}, grab {GrabMs} ms, encode {EncodeMs} ms, {Bytes} bytes")]
     private static partial void LogCaptured(ILogger logger, long sequence, int width, int height, long grabMs, long encodeMs, int bytes);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Screenshot rejected ({Reason}): {Detail}")]
+    private static partial void LogRejected(ILogger logger, ScreenUnavailableReason reason, string detail);
 }

@@ -53,6 +53,11 @@ catch (DisplayMismatchException e)
     AnsiConsole.MarkupLine($"[red]Display error:[/] {Markup.Escape(e.Message)}");
     return 1;
 }
+catch (ScreenUnavailableException e)
+{
+    AnsiConsole.MarkupLine($"[red]Screen unavailable ({e.Reason}):[/] {Markup.Escape(e.Message)}");
+    return 2;
+}
 catch (CommandAppException e)
 {
     // A wrong command or option, e.g. "--delay -1". PropagateExceptions would otherwise show it as a crash.

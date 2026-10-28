@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDisplayCheck, DisplayCheck>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IScreenGrabber, GdiScreenGrabber>();
+        services.AddSingleton<IFrameValidator, BlackFrameValidator>();
         services.AddSingleton<IFrameEncoder, GdiPngFrameEncoder>();
 
         // One instance behind both interfaces, so the frame sequence is shared. IPointer and IKeyboard follow with M4–M6.

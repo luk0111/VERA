@@ -15,6 +15,7 @@ public sealed class DesktopScreenTests
 
     private readonly IDisplayCheck _displayCheck = Substitute.For<IDisplayCheck>();
     private readonly IScreenGrabber _grabber = Substitute.For<IScreenGrabber>();
+    private readonly IFrameValidator _validator = Substitute.For<IFrameValidator>();
     private readonly IFrameEncoder _encoder = Substitute.For<IFrameEncoder>();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -94,9 +95,31 @@ public sealed class DesktopScreenTests
         (await screen.ScreenshotAsync(ct: Ct)).Sequence.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task A_rejected_frame_is_not_encoded_and_uses_no_sequence_number()
+    {
+        var black = true;
+        _validator.When(v => v.Validate(Arg.Any<RawFrame>())).Do(_ =>
+        {
+            if (black)
+            {
+                throw new ScreenUnavailableException(ScreenUnavailableReason.BlackFrame, "black");
+            }
+        });
+        var screen = Screen();
+
+        var e = await Should.ThrowAsync<ScreenUnavailableException>(() => screen.ScreenshotAsync(ct: Ct));
+
+        e.Reason.ShouldBe(ScreenUnavailableReason.BlackFrame);
+        _encoder.DidNotReceive().Encode(Arg.Any<RawFrame>(), Arg.Any<double>());
+        black = false;
+        (await screen.ScreenshotAsync(ct: Ct)).Sequence.ShouldBe(1);
+    }
+
     private DesktopScreen Screen(CaptureOptions? capture = null) => new(
         _displayCheck,
         _grabber,
+        _validator,
         _encoder,
         MsOptions.Create(new VeraInputOptions { Capture = capture ?? new CaptureOptions() }),
         NullLogger<DesktopScreen>.Instance);
