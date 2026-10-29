@@ -30,3 +30,6 @@ WTSQuerySessionInformation
 WTS_CONNECTSTATE_CLASS
 WTSFreeMemory
 WTS_CURRENT_SESSION
+
+// Cursor position (M3.2)
+GetCursorPos

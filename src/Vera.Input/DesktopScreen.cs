@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Vera.Input.Capture;
+using Vera.Input.Coordinates;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 using Vera.Input.Session;
@@ -28,6 +29,7 @@ internal sealed partial class DesktopScreen(
 {
     private readonly Lock _lock = new();
     private DisplayReport? _display;
+    private FrameGeometry? _latest;
     private long _sequence;
     private byte[]? _lastHash;
     private int _identicalFrames;
@@ -62,9 +64,24 @@ internal sealed partial class DesktopScreen(
     public Task KeyAsync(string combo, int repeat = 1, CancellationToken ct = default) =>
         throw new NotImplementedException("Key combos come in Milestone 6.");
 
+    /// <summary>
+    /// The geometry clicks are mapped with (the coordinate rule): the latest screenshot's, or before the first one, a
+    /// screenshot at <c>Capture.DefaultScale</c>.
+    /// </summary>
+    internal FrameGeometry CurrentGeometry()
+    {
+        var display = Display();
+        lock (_lock)
+        {
+            return _latest ?? FrameGeometry.ForScale(
+                display.CaptureMonitor.Bounds, display.Snapshot.VirtualDesktop, options.Value.Capture.DefaultScale);
+        }
+    }
+
     private ScreenFrame Capture(double scale)
     {
-        var bounds = Display().CaptureMonitor.Bounds;
+        var display = Display();
+        var bounds = display.CaptureMonitor.Bounds;
 
         var stopwatch = Stopwatch.StartNew();
         RawFrame raw;
@@ -86,14 +103,21 @@ internal sealed partial class DesktopScreen(
         var image = encoder.Encode(raw, scale);
         var encodeMs = stopwatch.ElapsedMilliseconds;
 
-        var sequence = Interlocked.Increment(ref _sequence);
+        var geometry = new FrameGeometry(image.Width, image.Height, bounds, display.Snapshot.VirtualDesktop);
+        long sequence;
+        lock (_lock)
+        {
+            sequence = ++_sequence;
+            _latest = geometry;
+        }
+
         LogCaptured(logger, sequence, image.Width, image.Height, grabMs, encodeMs, image.Png.Length);
         CheckStale(raw, sequence);
 
         return new ScreenFrame(
             image.Width,
             image.Height,
-            (double)image.Width / raw.Width,
+            geometry.Scale,
             raw.Width,
             raw.Height,
             image.Png,

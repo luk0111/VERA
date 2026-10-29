@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Vera.Input.Capture;
+using Vera.Input.Coordinates;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 using Vera.Input.Session;
@@ -38,6 +39,27 @@ public sealed class DesktopScreenTests
         _grabber.Received(1).Grab(Monitor.Bounds);
         frame.ShouldBe(new ScreenFrame(1920, 1080, 1.0, 1920, 1080, frame.Png, Time, 1));
         frame.Png.ShouldBe([1, 2, 3]);
+    }
+
+    [Fact]
+    public void Before_the_first_screenshot_clicks_are_mapped_at_the_configured_scale()
+    {
+        var geometry = Screen(new CaptureOptions { DefaultScale = 0.5 }).CurrentGeometry();
+
+        geometry.ShouldBe(new FrameGeometry(960, 540, Monitor.Bounds, Monitor.Bounds));
+    }
+
+    [Fact]
+    public async Task Clicks_are_mapped_with_the_latest_screenshot()
+    {
+        _encoder.Encode(Arg.Any<RawFrame>(), 0.5).Returns(new EncodedImage([1], 960, 540));
+        var screen = Screen();
+
+        await screen.ScreenshotAsync(0.5, Ct);
+        screen.CurrentGeometry().ImageWidth.ShouldBe(960);
+
+        await screen.ScreenshotAsync(1.0, Ct);
+        screen.CurrentGeometry().ImageWidth.ShouldBe(1920);
     }
 
     [Fact]

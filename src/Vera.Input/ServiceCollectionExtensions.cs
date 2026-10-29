@@ -28,6 +28,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDpiAwarenessCheck, DpiAwarenessCheck>();
         services.AddSingleton<IDisplayInfo, Win32DisplayInfo>();
         services.AddSingleton<IDisplayCheck, DisplayCheck>();
+        services.AddSingleton<ICursorPosition, Win32CursorPosition>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IScreenGrabber, GdiScreenGrabber>();
         services.AddSingleton<ISessionProbe, Win32SessionProbe>();

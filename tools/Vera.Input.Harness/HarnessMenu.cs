@@ -4,17 +4,20 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Spectre.Console;
 
+using Vera.Input.Coordinates;
 using Vera.Input.Platform;
 
 namespace Vera.Input.Harness;
 
 /// <summary>
 /// The menu shown when the harness starts without a command. It asks a few questions, then runs the same command you
-/// could type (<c>info</c>, <c>screenshot</c>) with the answers as settings on top of appsettings.json.
+/// could type (<c>info</c>, <c>screenshot</c>, <c>map</c>, <c>mouse</c>) with the answers as settings on top of appsettings.json.
 /// </summary>
 internal static class HarnessMenu
 {
     private const string Screenshot = "Take a screenshot";
+    private const string Map = "Map a point (screenshot → screen)";
+    private const string Mouse = "Where's my mouse? (live)";
     private const string Info = "Show display info and settings";
     private const string Quit = "Quit";
 
@@ -24,12 +27,18 @@ internal static class HarnessMenu
         {
             var choice = AnsiConsole.Prompt(new SelectionPrompt<string>()
                 .Title("[bold]Vera.Input.Harness[/]: what do you want to test?")
-                .AddChoices(Screenshot, Info, Quit));
+                .AddChoices(Screenshot, Map, Mouse, Info, Quit));
 
             switch (choice)
             {
                 case Screenshot:
                     await TakeScreenshotAsync();
+                    break;
+                case Map:
+                    await MapPointAsync();
+                    break;
+                case Mouse:
+                    await ShowMouseAsync();
                     break;
                 case Info:
                     await HarnessApp.RunAsync(["info"]);
@@ -46,19 +55,7 @@ internal static class HarnessMenu
     private static async Task TakeScreenshotAsync()
     {
         var overrides = new Dictionary<string, string?>();
-
-        var monitors = ReadMonitors();
-        var monitor = monitors.Find(m => m.IsPrimary) ?? monitors[0];
-        if (monitors.Count > 1)
-        {
-            monitor = AnsiConsole.Prompt(new SelectionPrompt<MonitorInfo>()
-                .Title("Which monitor?")
-                .UseConverter(Describe)
-                .AddChoices(monitors.OrderByDescending(m => m.IsPrimary)));
-            overrides["VeraInput:Display:CaptureTarget"] = "MonitorIndex";
-            overrides["VeraInput:Display:MonitorIndex"] = monitor.Index.ToString(CultureInfo.InvariantCulture);
-        }
-
+        var monitor = AskMonitor(overrides);
         var scale = AskScale(monitor.Bounds);
 
         var checkRdp = AnsiConsole.Confirm("Check the RDP window first? (say no if you aren't connected over RDP)", defaultValue: false);
@@ -74,6 +71,54 @@ internal static class HarnessMenu
             overrides);
     }
 
+    private static async Task MapPointAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        var monitor = AskMonitor(overrides);
+        var scale = AskScale(monitor.Bounds);
+        var (width, height) = FrameGeometry.ScaledSize(monitor.Bounds.Width, monitor.Bounds.Height, scale);
+
+        var x = AskCoordinate($"X in the screenshot (0–{width - 1}):", width);
+        var y = AskCoordinate($"Y in the screenshot (0–{height - 1}):", height);
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(
+            ["map", x.ToString(CultureInfo.InvariantCulture), y.ToString(CultureInfo.InvariantCulture), "--scale", scale.ToString(CultureInfo.InvariantCulture)],
+            overrides);
+    }
+
+    private static async Task ShowMouseAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        AskMonitor(overrides);
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(["mouse"], overrides);
+    }
+
+    /// <summary>Asks which monitor to use when there's more than one, and sets it as the capture monitor.</summary>
+    private static MonitorInfo AskMonitor(Dictionary<string, string?> overrides)
+    {
+        var monitors = ReadMonitors();
+        if (monitors.Count == 1)
+        {
+            return monitors[0];
+        }
+
+        var monitor = AnsiConsole.Prompt(new SelectionPrompt<MonitorInfo>()
+            .Title("Which monitor?")
+            .UseConverter(Describe)
+            .AddChoices(monitors.OrderByDescending(m => m.IsPrimary)));
+        overrides["VeraInput:Display:CaptureTarget"] = "MonitorIndex";
+        overrides["VeraInput:Display:MonitorIndex"] = monitor.Index.ToString(CultureInfo.InvariantCulture);
+        return monitor;
+    }
+
+    private static int AskCoordinate(string question, int size) =>
+        AnsiConsole.Prompt(new TextPrompt<int>(question)
+            .DefaultValue(size / 2)
+            .Validate(v => v >= 0 && v < size ? ValidationResult.Success() : ValidationResult.Error($"Must be between 0 and {size - 1}.")));
+
     /// <summary>Asks for the image size. The presets show the resulting size for the chosen monitor.</summary>
     private static double AskScale(ScreenRect bounds)
     {
@@ -82,7 +127,7 @@ internal static class HarnessMenu
             .Title("What size?")
             .UseConverter(s => s == other
                 ? "Other…"
-                : $"{s * 100:0}% ({Math.Round(bounds.Width * s)}×{Math.Round(bounds.Height * s)})")
+                : $"{s * 100:0}% ({Size(bounds, s)})")
             .AddChoices(1.0, 0.75, 0.5, other));
 
         return scale != other ? scale : AnsiConsole.Prompt(new TextPrompt<double>("Scale, e.g. 0.6:")
@@ -94,6 +139,12 @@ internal static class HarnessMenu
     {
         using var services = HarnessApp.CreateBuilder().Services.BuildServiceProvider();
         return [.. services.GetRequiredService<IDisplayInfo>().Read().Monitors];
+    }
+
+    private static string Size(ScreenRect bounds, double scale)
+    {
+        var (width, height) = FrameGeometry.ScaledSize(bounds.Width, bounds.Height, scale);
+        return $"{width}×{height}";
     }
 
     private static string Describe(MonitorInfo m) =>

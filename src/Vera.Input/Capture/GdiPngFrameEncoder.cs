@@ -3,6 +3,8 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
+using Vera.Input.Coordinates;
+
 namespace Vera.Input.Capture;
 
 /// <summary>A PNG and its size in pixels.</summary>
@@ -29,8 +31,7 @@ internal sealed class GdiPngFrameEncoder : IFrameEncoder
                 return new EncodedImage(ToPng(source), frame.Width, frame.Height);
             }
 
-            var width = Math.Max(1, (int)Math.Round(frame.Width * scale));
-            var height = Math.Max(1, (int)Math.Round(frame.Height * scale));
+            var (width, height) = FrameGeometry.ScaledSize(frame.Width, frame.Height, scale);
             using var scaled = Resize(source, width, height);
             return new EncodedImage(ToPng(scaled), width, height);
         }

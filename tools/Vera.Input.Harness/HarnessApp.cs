@@ -30,6 +30,8 @@ internal static class HarnessApp
                 config.UseStrictParsing();
                 config.AddCommand<InfoCommand>("info").WithDescription("Prints the DPI awareness and the effective VeraInput configuration.");
                 config.AddCommand<ScreenshotCommand>("screenshot").WithDescription("Saves a screenshot of the capture monitor as a PNG.");
+                config.AddCommand<MapCommand>("map").WithDescription("Shows where a point in a screenshot lands on the screen. Nothing moves.");
+                config.AddCommand<MouseCommand>("mouse").WithDescription("Shows live where the mouse is, on the screen and in a screenshot.");
             });
 
             return await app.RunAsync(args);

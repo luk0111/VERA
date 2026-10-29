@@ -3,6 +3,8 @@ namespace Vera.Input.Platform;
 /// <summary>A rectangle in physical screen pixels. <see cref="Left"/> and <see cref="Top"/> can be negative on multi-monitor setups.</summary>
 public readonly record struct ScreenRect(int Left, int Top, int Width, int Height)
 {
+    public bool Contains(int x, int y) => x >= Left && x < Left + Width && y >= Top && y < Top + Height;
+
     public override string ToString() => $"{Width}×{Height} at ({Left},{Top})";
 }
 
