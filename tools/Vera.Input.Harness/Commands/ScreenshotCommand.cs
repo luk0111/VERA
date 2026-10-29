@@ -21,8 +21,14 @@ internal sealed class ScreenshotCommand(IScreenshotSource screen, TimeProvider t
         [Description("Wait this long first, e.g. to click into the RDP window. Default: 0")]
         public int Delay { get; init; }
 
+        [CommandOption("--scale <SCALE>")]
+        [Description("Image size relative to the screen, e.g. 0.5 for half. Default: Capture.DefaultScale")]
+        public double? Scale { get; init; }
+
         public override ValidationResult Validate() =>
-            Delay < 0 ? ValidationResult.Error("--delay can't be negative.") : ValidationResult.Success();
+            Delay < 0 ? ValidationResult.Error("--delay can't be negative.")
+            : Scale is <= 0 or > 1 ? ValidationResult.Error("--scale must be greater than 0 and at most 1.")
+            : ValidationResult.Success();
     }
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
@@ -34,7 +40,7 @@ internal sealed class ScreenshotCommand(IScreenshotSource screen, TimeProvider t
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var frame = await screen.ScreenshotAsync(ct: cancellationToken);
+        var frame = await screen.ScreenshotAsync(settings.Scale, cancellationToken);
         var totalMs = stopwatch.ElapsedMilliseconds;
 
         var path = Path.GetFullPath(settings.Out ?? Path.Combine(

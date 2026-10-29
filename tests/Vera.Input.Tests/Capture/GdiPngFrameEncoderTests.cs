@@ -29,11 +29,51 @@ public sealed class GdiPngFrameEncoderTests
         decoded.GetPixel(1, 1).ToArgb().ShouldBe(Color.FromArgb(255, 255, 255).ToArgb());
     }
 
-    [Fact]
-    public void Scales_other_than_1_are_not_supported_yet()
+    [Theory]
+    [InlineData(0.5, 960, 540)]
+    [InlineData(0.75, 1440, 810)]
+    [InlineData(1.0 / 3, 640, 360)]
+    [InlineData(0.6, 1152, 648)]
+    public void A_scaled_png_has_the_rounded_size(double scale, int width, int height)
     {
-        var frame = new RawFrame(new ScreenRect(0, 0, 2, 2), new byte[16], DateTimeOffset.UnixEpoch);
+        var image = new GdiPngFrameEncoder().Encode(Solid(1920, 1080, Color.Gray), scale);
 
-        Should.Throw<NotSupportedException>(() => new GdiPngFrameEncoder().Encode(frame, 0.5));
+        (image.Width, image.Height).ShouldBe((width, height));
+        using var decoded = new Bitmap(new MemoryStream(image.Png));
+        (decoded.Width, decoded.Height).ShouldBe((width, height));
+    }
+
+    [Fact]
+    public void A_tiny_scale_still_gives_at_least_one_pixel()
+    {
+        var image = new GdiPngFrameEncoder().Encode(Solid(10, 4, Color.Gray), 0.01);
+
+        (image.Width, image.Height).ShouldBe((1, 1));
+    }
+
+    [Fact]
+    public void Scaling_keeps_the_colour_up_to_the_edges()
+    {
+        var color = Color.FromArgb(200, 120, 40);
+
+        var image = new GdiPngFrameEncoder().Encode(Solid(200, 100, color), 0.5);
+
+        using var decoded = new Bitmap(new MemoryStream(image.Png));
+        (int X, int Y)[] points = [(0, 0), (99, 0), (0, 49), (99, 49), (50, 0), (0, 25), (50, 25)];
+        foreach (var (x, y) in points)
+        {
+            decoded.GetPixel(x, y).ToArgb().ShouldBe(color.ToArgb(), $"pixel ({x},{y})");
+        }
+    }
+
+    private static RawFrame Solid(int width, int height, Color color)
+    {
+        var bgra = new byte[width * height * 4];
+        for (var i = 0; i < bgra.Length; i += 4)
+        {
+            (bgra[i], bgra[i + 1], bgra[i + 2]) = (color.B, color.G, color.R);
+        }
+
+        return new RawFrame(new ScreenRect(0, 0, width, height), bgra, DateTimeOffset.UnixEpoch);
     }
 }

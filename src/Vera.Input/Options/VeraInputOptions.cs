@@ -67,6 +67,7 @@ public sealed record CaptureOptions
     public double DefaultScale { get; init; } = 1.0;
 
     /// <summary>Optional cap on the longer image side in pixels, applied after the scale.</summary>
+    /// <remarks>Not used yet: planned once the AI service, and so its image size limit, is known.</remarks>
     [Range(16, 32768)]
     public int? MaxLongEdge { get; init; }
 
