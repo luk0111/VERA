@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Vera.Input.Capture;
@@ -26,7 +25,7 @@ public sealed class DesktopScreenTests
 
     public DesktopScreenTests()
     {
-        _displayCheck.Run().Returns(new DisplayReport(new DisplaySnapshot(Monitor.Bounds, [Monitor], false), Monitor, []));
+        _displayCheck.Run().Returns(new DisplayReport(new DisplaySnapshot(Monitor.Bounds, [Monitor], false), Monitor));
         _grabber.Grab(Arg.Any<ScreenRect>()).Returns(call => new RawFrame(call.Arg<ScreenRect>(), [], Time));
         _encoder.Encode(Arg.Any<RawFrame>(), Arg.Any<double>()).Returns(new EncodedImage([1, 2, 3], 1920, 1080));
     }
@@ -165,60 +164,12 @@ public sealed class DesktopScreenTests
         _grabber.DidNotReceive().Grab(Arg.Any<ScreenRect>());
     }
 
-    [Fact]
-    public async Task Identical_frames_warn_once_when_the_limit_is_reached()
-    {
-        var logger = new RecordingLogger();
-        var screen = Screen(new CaptureOptions { StaleWarningAfterIdenticalFrames = 2 }, logger);
-
-        for (var i = 0; i < 5; i++)
-        {
-            await screen.ScreenshotAsync(ct: Ct);
-        }
-
-        logger.Warnings.ShouldHaveSingleItem().ShouldContain("last 3 screenshots (up to 3) are identical");
-    }
-
-    [Fact]
-    public async Task A_changed_frame_resets_the_identical_count()
-    {
-        var logger = new RecordingLogger();
-        var screen = Screen(new CaptureOptions { StaleWarningAfterIdenticalFrames = 2 }, logger);
-        var calls = 0;
-        _grabber.Grab(Arg.Any<ScreenRect>()).Returns(call => new RawFrame(call.Arg<ScreenRect>(), [(byte)(calls++ / 2)], Time));
-
-        for (var i = 0; i < 6; i++)
-        {
-            await screen.ScreenshotAsync(ct: Ct);
-        }
-
-        logger.Warnings.ShouldBeEmpty();
-    }
-
-    private DesktopScreen Screen(CaptureOptions? capture = null, ILogger<DesktopScreen>? logger = null) => new(
+    private DesktopScreen Screen(CaptureOptions? capture = null) => new(
         _displayCheck,
         _guard,
         _grabber,
         _validator,
         _encoder,
         MsOptions.Create(new VeraInputOptions { Capture = capture ?? new CaptureOptions() }),
-        logger ?? NullLogger<DesktopScreen>.Instance);
-
-    private sealed class RecordingLogger : ILogger<DesktopScreen>
-    {
-        public List<string> Warnings { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            if (logLevel == LogLevel.Warning)
-            {
-                Warnings.Add(formatter(state, exception));
-            }
-        }
-    }
+        NullLogger<DesktopScreen>.Instance);
 }

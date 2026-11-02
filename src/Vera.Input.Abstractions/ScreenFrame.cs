@@ -22,6 +22,5 @@ public sealed record ScreenFrame(
     DateTimeOffset CapturedAt,
     long Sequence);
 
-/// <param name="Method">Overrides the configured way of typing for this call.</param>
 /// <param name="Sensitive">The text is a secret (e.g. a password) and is redacted in logs and the journal.</param>
-public sealed record TypeTextOptions(TextInputMethod Method = TextInputMethod.Auto, bool Sensitive = false);
+public sealed record TypeTextOptions(bool Sensitive = false);

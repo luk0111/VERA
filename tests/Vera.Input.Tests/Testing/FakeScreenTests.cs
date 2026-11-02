@@ -45,7 +45,7 @@ public sealed class FakeScreenTests
     public async Task Every_call_is_recorded_with_its_arguments()
     {
         var screen = new FakeScreen([Png(100, 50)]);
-        var options = new TypeTextOptions(TextInputMethod.Clipboard, Sensitive: true);
+        var options = new TypeTextOptions(Sensitive: true);
 
         await screen.ScreenshotAsync(0.5, Ct);
         await screen.MoveAsync(1, 2, Ct);

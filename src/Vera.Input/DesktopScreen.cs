@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -31,8 +30,6 @@ internal sealed partial class DesktopScreen(
     private DisplayReport? _display;
     private FrameGeometry? _latest;
     private long _sequence;
-    private byte[]? _lastHash;
-    private int _identicalFrames;
 
     public Task<ScreenFrame> ScreenshotAsync(double? scale = null, CancellationToken ct = default)
     {
@@ -112,7 +109,6 @@ internal sealed partial class DesktopScreen(
         }
 
         LogCaptured(logger, sequence, image.Width, image.Height, grabMs, encodeMs, image.Png.Length);
-        CheckStale(raw, sequence);
 
         return new ScreenFrame(
             image.Width,
@@ -123,24 +119,6 @@ internal sealed partial class DesktopScreen(
             image.Png,
             raw.CapturedAt,
             sequence);
-    }
-
-    // A screen that doesn't change can be legitimate (nothing happening), so this only warns once per streak.
-    private void CheckStale(RawFrame raw, long sequence)
-    {
-        var hash = SHA256.HashData(raw.Bgra);
-        int identical;
-        lock (_lock)
-        {
-            _identicalFrames = _lastHash is not null && hash.AsSpan().SequenceEqual(_lastHash) ? _identicalFrames + 1 : 0;
-            _lastHash = hash;
-            identical = _identicalFrames;
-        }
-
-        if (identical == options.Value.Capture.StaleWarningAfterIdenticalFrames)
-        {
-            LogStale(logger, identical + 1, sequence);
-        }
     }
 
     private DisplayReport Display()
@@ -156,8 +134,4 @@ internal sealed partial class DesktopScreen(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Screenshot rejected ({Reason}): {Detail}")]
     private static partial void LogRejected(ILogger logger, ScreenUnavailableReason reason, string detail);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message =
-        "The last {Count} screenshots (up to {Sequence}) are identical. The remote screen may be frozen or the RDP session stuck.")]
-    private static partial void LogStale(ILogger logger, int count, long sequence);
 }

@@ -58,11 +58,8 @@ internal static class HarnessMenu
         var monitor = AskMonitor(overrides);
         var scale = AskScale(monitor.Bounds);
 
-        var checkRdp = AnsiConsole.Confirm("Check the RDP window first? (say no if you aren't connected over RDP)", defaultValue: false);
-        overrides["VeraInput:Rdp:Enabled"] = checkRdp ? "true" : "false";
-
         var delay = AnsiConsole.Prompt(new TextPrompt<int>("Wait how many seconds first?")
-            .DefaultValue(checkRdp ? 3 : 0)
+            .DefaultValue(0)
             .Validate(seconds => seconds >= 0 ? ValidationResult.Success() : ValidationResult.Error("Can't be negative.")));
 
         AnsiConsole.WriteLine();
@@ -109,7 +106,6 @@ internal static class HarnessMenu
             .Title("Which monitor?")
             .UseConverter(Describe)
             .AddChoices(monitors.OrderByDescending(m => m.IsPrimary)));
-        overrides["VeraInput:Display:CaptureTarget"] = "MonitorIndex";
         overrides["VeraInput:Display:MonitorIndex"] = monitor.Index.ToString(CultureInfo.InvariantCulture);
         return monitor;
     }

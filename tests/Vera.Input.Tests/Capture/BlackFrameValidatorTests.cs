@@ -1,8 +1,5 @@
 using Vera.Input.Capture;
-using Vera.Input.Options;
 using Vera.Input.Platform;
-
-using MsOptions = Microsoft.Extensions.Options.Options;
 
 namespace Vera.Input.Tests.Capture;
 
@@ -62,14 +59,6 @@ public sealed class BlackFrameValidatorTests
         Should.NotThrow(() => Validate(Frame(0, 0, 255)));
     }
 
-    [Fact]
-    public void The_threshold_and_ratio_come_from_the_options()
-    {
-        var frame = Frame(30, 30, 30);
-
-        Should.Throw<ScreenUnavailableException>(() => Validate(frame, new CaptureOptions { BlackLuminanceThreshold = 31 }));
-    }
-
     [Theory]
     [InlineData(1)]
     [InlineData(4)]
@@ -83,8 +72,7 @@ public sealed class BlackFrameValidatorTests
         BlackFrameValidator.BlackRatio(frame, stride, threshold: 10).ShouldBe(0.5, tolerance: 0.01);
     }
 
-    private static void Validate(RawFrame frame, CaptureOptions? capture = null) =>
-        new BlackFrameValidator(MsOptions.Create(new VeraInputOptions { Capture = capture ?? new CaptureOptions() })).Validate(frame);
+    private static void Validate(RawFrame frame) => new BlackFrameValidator().Validate(frame);
 
     private static RawFrame Frame(byte red, byte green, byte blue)
     {

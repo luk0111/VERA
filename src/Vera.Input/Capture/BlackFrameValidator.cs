@@ -1,7 +1,3 @@
-using Microsoft.Extensions.Options;
-
-using Vera.Input.Options;
-
 namespace Vera.Input.Capture;
 
 /// <summary>Checks a frame before it's handed out.</summary>
@@ -13,22 +9,25 @@ public interface IFrameValidator
 
 /// <summary>
 /// Rejects frames that are (almost) entirely black. A locked, sleeping or disconnected screen often gives a black
-/// picture instead of an error. Samples every <c>SampleStride</c>-th pixel in both directions; a sample is black when
-/// its luminance is below <c>BlackLuminanceThreshold</c>, and the frame is black when more than <c>BlackPixelRatio</c>
-/// of the samples are. A small cursor on black still counts as black; a dark theme (grey, not black) does not.
+/// picture instead of an error. Samples every 4th pixel in both directions; a sample is black when its luminance is
+/// below 10, and the frame is black when more than 99.5% of the samples are. A small cursor on black still counts as
+/// black; a dark theme (grey, not black) does not.
 /// </summary>
-internal sealed class BlackFrameValidator(IOptions<VeraInputOptions> options) : IFrameValidator
+internal sealed class BlackFrameValidator : IFrameValidator
 {
+    private const int SampleStride = 4;
+    private const int LuminanceThreshold = 10;
+    private const double BlackPixelRatio = 0.995;
+
     public void Validate(RawFrame frame)
     {
-        var capture = options.Value.Capture;
-        var ratio = BlackRatio(frame, capture.SampleStride, capture.BlackLuminanceThreshold);
-        if (ratio > capture.BlackPixelRatio)
+        var ratio = BlackRatio(frame, SampleStride, LuminanceThreshold);
+        if (ratio > BlackPixelRatio)
         {
             throw new ScreenUnavailableException(
                 ScreenUnavailableReason.BlackFrame,
-                $"The screenshot is black ({ratio:P1} of the sampled pixels are darker than {capture.BlackLuminanceThreshold}). " +
-                "The screen is probably locked, asleep or showing a disconnected RDP session.");
+                $"The screenshot is black ({ratio:P1} of the sampled pixels are darker than {LuminanceThreshold}). " +
+                "The screen is probably locked, asleep or disconnected.");
         }
     }
 

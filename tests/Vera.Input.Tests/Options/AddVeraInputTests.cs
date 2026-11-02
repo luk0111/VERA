@@ -18,31 +18,20 @@ public sealed class AddVeraInputTests
     public void Values_from_configuration_override_the_defaults()
     {
         var options = Options(
-            ("VeraInput:Display:ExpectedWidth", "2560"),
+            ("VeraInput:Display:MonitorIndex", "1"),
             ("VeraInput:Capture:DefaultScale", "0.5"),
-            ("VeraInput:Rdp:Enabled", "false"),
-            ("VeraInput:Delays:AfterClick", "500"),
-            ("VeraInput:Text:DefaultMethod", "Clipboard"),
-            ("VeraInput:Journal:Folder", "D:/runs"));
+            ("VeraInput:Rdp:Enabled", "true"));
 
-        options.Display.ExpectedWidth.ShouldBe(2560);
+        options.Display.MonitorIndex.ShouldBe(1);
         options.Capture.DefaultScale.ShouldBe(0.5);
-        options.Rdp.Enabled.ShouldBeFalse();
-        options.Delays.AfterClick.ShouldBe(500);
-        options.Text.DefaultMethod.ShouldBe(TextInputMethod.Clipboard);
-        options.Journal.Folder.ShouldBe("D:/runs");
-        options.Delays.AfterMove.ShouldBe(50);
+        options.Rdp.Enabled.ShouldBeTrue();
+        options.Rdp.RequireForeground.ShouldBeTrue();
     }
 
     [Theory]
-    [InlineData("VeraInput:Delays:AfterClick", "-5", "AfterClick")]
-    [InlineData("VeraInput:Delays:DragSteps", "0", "DragSteps")]
-    [InlineData("VeraInput:Display:ExpectedScalePercent", "50", "ExpectedScalePercent")]
+    [InlineData("VeraInput:Display:MonitorIndex", "99", "MonitorIndex")]
     [InlineData("VeraInput:Capture:DefaultScale", "1.5", "DefaultScale")]
-    [InlineData("VeraInput:Capture:MaxLongEdge", "8", "MaxLongEdge")]
     [InlineData("VeraInput:Rdp:WindowClass", "", "WindowClass")]
-    [InlineData("VeraInput:Journal:ScreenshotScale", "0", "ScreenshotScale")]
-    [InlineData("VeraInput:Text:AutoClipboardFor", "7", "AutoClipboardFor")]
     public void An_invalid_value_fails_naming_the_setting(string key, string value, string setting)
     {
         var e = Should.Throw<OptionsValidationException>(() => Options((key, value)));
@@ -53,15 +42,15 @@ public sealed class AddVeraInputTests
     [Fact]
     public void A_misspelled_key_fails_naming_the_key()
     {
-        var e = Should.Throw<InvalidOperationException>(() => Options(("VeraInput:Delays:AfterClik", "5")));
+        var e = Should.Throw<InvalidOperationException>(() => Options(("VeraInput:Capture:DefaultScal", "0.5")));
 
-        e.Message.ShouldContain("AfterClik");
+        e.Message.ShouldContain("DefaultScal");
     }
 
     [Fact]
     public void Bad_values_are_found_at_startup_not_at_first_use()
     {
-        using var services = Services(("VeraInput:Delays:AfterClick", "-5"));
+        using var services = Services(("VeraInput:Capture:DefaultScale", "1.5"));
 
         Should.Throw<OptionsValidationException>(() => services.GetRequiredService<IStartupValidator>().Validate());
     }

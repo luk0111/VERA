@@ -82,15 +82,5 @@ internal sealed partial class InfoCommand(
         AnsiConsole.MarkupLine(snapshot.IsRemoteSession
             ? "[yellow]Remote session:[/] yes, someone is connected to this machine over RDP"
             : "[bold]Remote session:[/] no");
-
-        if (report.Mismatches.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[green]Matches the expected display.[/]");
-        }
-
-        foreach (var mismatch in report.Mismatches)
-        {
-            AnsiConsole.MarkupLine($"[yellow]Mismatch:[/] {Markup.Escape(mismatch)}");
-        }
     }
 }

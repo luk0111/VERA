@@ -73,7 +73,7 @@ public sealed class SessionGuardTests
     {
         _probe.GetForegroundWindow().Returns(999);
 
-        Should.NotThrow(() => Guard(new RdpOptions { RequireForeground = false }).EnsureReady(Monitor));
+        Should.NotThrow(() => Guard(new RdpOptions { Enabled = true, RequireForeground = false }).EnsureReady(Monitor));
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class SessionGuardTests
     {
         _probe.FindWindows("Notepad").Returns([FullScreenRdp]);
 
-        Should.NotThrow(() => Guard(new RdpOptions { WindowClass = "Notepad" }).EnsureReady(Monitor));
+        Should.NotThrow(() => Guard(new RdpOptions { Enabled = true, WindowClass = "Notepad" }).EnsureReady(Monitor));
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public sealed class SessionGuardTests
     }
 
     private SessionGuard Guard(RdpOptions? rdp = null) =>
-        new(_probe, MsOptions.Create(new VeraInputOptions { Rdp = rdp ?? new RdpOptions() }));
+        new(_probe, MsOptions.Create(new VeraInputOptions { Rdp = rdp ?? new RdpOptions { Enabled = true } }));
 
     private static ScreenUnavailableReason Reason(Action action) => Should.Throw<ScreenUnavailableException>(action).Reason;
 }
