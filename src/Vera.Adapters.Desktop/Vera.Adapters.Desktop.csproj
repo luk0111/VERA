@@ -8,6 +8,7 @@
     <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
     <PackageReference Include="FlaUI.Core" />
     <PackageReference Include="FlaUI.UIA3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
