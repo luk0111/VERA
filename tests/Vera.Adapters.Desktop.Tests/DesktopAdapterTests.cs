@@ -52,18 +52,38 @@ public sealed class DesktopAdapterIntegrationTests
         BinaryPrimitives.ReadInt32BigEndian(png[20..]).ShouldBe(state.Elements[0].Bounds.Height);
     }
 
+    [Fact]
+    public async Task A_window_closed_after_attaching_gives_the_closed_message()
+    {
+        using var charmap = await StartCharacterMapAsync();
+        await using var adapter = new DesktopAdapter();
+        await adapter.StartAsync(new AppTarget("Character Map", AppPlatform.Desktop, "", ProcessId: charmap.Id), Ct);
+        charmap.Kill();
+        await charmap.WaitForExitAsync(Ct);
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => adapter.GetScreenStateAsync(Ct));
+
+        error.Message.ShouldBe("The app is closed or has no window.");
+    }
+
+    private static async Task<Process> StartCharacterMapAsync()
+    {
+        var charmap = Process.Start("charmap.exe");
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (charmap.MainWindowHandle == IntPtr.Zero && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(200, Ct);
+            charmap.Refresh();
+        }
+
+        return charmap;
+    }
+
     private static async Task<ScreenState> ReadCharacterMapAsync()
     {
-        using var charmap = Process.Start("charmap.exe");
+        using var charmap = await StartCharacterMapAsync();
         try
         {
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (charmap.MainWindowHandle == IntPtr.Zero && DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(200, Ct);
-                charmap.Refresh();
-            }
-
             await using var adapter = new DesktopAdapter();
             await adapter.StartAsync(new AppTarget("Character Map", AppPlatform.Desktop, "", ProcessId: charmap.Id), Ct);
             return await adapter.GetScreenStateAsync(Ct);

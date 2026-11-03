@@ -95,7 +95,8 @@ public sealed class DesktopAdapter : IAppAdapter
 
             return new ScreenState(title, ElementNumbering.Number(title, bounds, candidates), Screenshot(r), []);
         }
-        catch (COMException e)
+        // FlaUI reports a window that has gone as ElementNotAvailableException, which has no message of its own.
+        catch (Exception e) when (e is COMException or FlaUI.Core.Exceptions.ElementNotAvailableException)
         {
             throw new InvalidOperationException(WindowGone, e);
         }
