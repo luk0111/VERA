@@ -31,7 +31,8 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
             return new FindResult(false, null, NoElementsReason, await SaveAsync(screen.ScreenshotPng, ct).ConfigureAwait(false));
         }
 
-        var task = new TestTask($"Click the {what}", $"The {what} is found", target);
+        // "Has been clicked", not "is found": the model answers "done" once the expected result is on screen, and a visible element is already found.
+        var task = new TestTask($"Click the {what}", $"The {what} has been clicked", target);
         var action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
 
         var element = action.Type is AgentActionType.Click or AgentActionType.Type

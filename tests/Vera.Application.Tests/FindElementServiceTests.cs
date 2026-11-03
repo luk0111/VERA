@@ -67,6 +67,17 @@ public sealed class FindElementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task The_expected_result_is_a_click_so_seeing_the_element_is_not_already_done()
+    {
+        ModelAnswers(new AgentAction(AgentActionType.Fail, null, null, ""));
+
+        await NewService().FindAsync(1234, "App", "Log in button", Ct);
+
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Is<TestTask>(t => t.ExpectedResult == "The Log in button has been clicked"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task A_window_without_elements_is_not_found_without_asking_the_model()
     {
         _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window));
