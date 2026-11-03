@@ -8,6 +8,11 @@
     <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="OllamaSharp" />
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vera.Llm.Tests" />
   </ItemGroup>
 
 </Project>
