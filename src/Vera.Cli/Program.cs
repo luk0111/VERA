@@ -41,6 +41,7 @@ while (true)
             .UseConverter(option => option switch
             {
                 MainMenuOption.StartTesting => "Start testing an app",
+                MainMenuOption.FindElement => "Find an element in an app",
                 MainMenuOption.Settings => "Settings",
                 MainMenuOption.Exit => "Exit",
                 _ => option.ToString(),
@@ -50,6 +51,13 @@ while (true)
     {
         case MainMenuOption.StartTesting:
             await StartTestScreen.ShowAsync(settings, () => services.GetRequiredService<ChatSession>());
+            break;
+        case MainMenuOption.FindElement:
+            if (ProcessPicker.Pick(settings, "Find an element in an app") is { } app)
+            {
+                await FindScreen.ShowAsync(settings, app, services.GetRequiredService<FindElementService>());
+            }
+
             break;
         case MainMenuOption.Settings:
             SettingsScreen.Show(settings);
@@ -63,6 +71,7 @@ while (true)
 internal enum MainMenuOption
 {
     StartTesting,
+    FindElement,
     Settings,
     Exit,
 }
