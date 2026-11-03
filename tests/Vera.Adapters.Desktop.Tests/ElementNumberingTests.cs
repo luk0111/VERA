@@ -46,13 +46,14 @@ public sealed class ElementNumberingTests
     }
 
     [Fact]
-    public void At_most_40_elements_are_kept()
+    public void At_most_80_elements_are_kept()
     {
-        var candidates = Enumerable.Range(0, 50).Select(i => Raw("Button", $"B{i}", 110 + (i % 10 * 30), 110 + (i / 10 * 30))).ToList();
+        // Enough for Calculator's scientific mode, whose equals button is past number 40.
+        var candidates = Enumerable.Range(0, 100).Select(i => Raw("Button", $"B{i}", 110 + (i % 10 * 30), 110 + (i / 10 * 25))).ToList();
 
         var elements = ElementNumbering.Number("Calc", Window, candidates);
 
-        elements.Count.ShouldBe(ElementNumbering.MaxElements + 1);
+        elements.Count.ShouldBe(81);
     }
 
     [Fact]

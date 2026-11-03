@@ -8,8 +8,8 @@ namespace Vera.Adapters.Desktop;
 /// </summary>
 internal static class ElementNumbering
 {
-    /// <summary>More elements make the model's prompt too long for a small context window.</summary>
-    public const int MaxElements = 40;
+    /// <summary>Room for big windows such as Calculator's scientific mode; more would make the model's prompt too long for its context window.</summary>
+    public const int MaxElements = 80;
 
     private static readonly HashSet<string> ActionableRoles = new(StringComparer.Ordinal)
     {
