@@ -24,6 +24,7 @@
     <Project Path="tests/Vera.Core.Tests/Vera.Core.Tests.csproj" />
     <Project Path="tests/Vera.Input.Tests/Vera.Input.Tests.csproj" />
     <Project Path="tests/Vera.Llm.Tests/Vera.Llm.Tests.csproj" />
+    <Project Path="tests/Vera.Reporting.Tests/Vera.Reporting.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Vera.Input.EchoApp/Vera.Input.EchoApp.csproj" />
