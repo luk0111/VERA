@@ -40,7 +40,13 @@ internal sealed partial class DesktopScreen(
         }
 
         ct.ThrowIfCancellationRequested();
-        return Task.Run(() => Capture(effectiveScale), ct);
+        return Task.Run(() => Capture(Display().CaptureMonitor.Bounds, effectiveScale), ct);
+    }
+
+    public Task<ScreenFrame> ScreenshotAreaAsync(int left, int top, int width, int height, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.Run(() => Capture(new ScreenRect(left, top, width, height), 1), ct);
     }
 
     public Task MoveAsync(int x, int y, CancellationToken ct = default) =>
@@ -75,10 +81,9 @@ internal sealed partial class DesktopScreen(
         }
     }
 
-    private ScreenFrame Capture(double scale)
+    private ScreenFrame Capture(ScreenRect bounds, double scale)
     {
         var display = Display();
-        var bounds = display.CaptureMonitor.Bounds;
 
         var stopwatch = Stopwatch.StartNew();
         RawFrame raw;

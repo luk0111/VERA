@@ -26,7 +26,7 @@ public readonly record struct NormalizedPoint(int X, int Y)
 /// <summary>Where a screenshot came from and how big it is: everything needed to turn its pixels into screen pixels.</summary>
 /// <param name="ImageWidth">The screenshot's width in pixels (after scaling).</param>
 /// <param name="ImageHeight">The screenshot's height in pixels (after scaling).</param>
-/// <param name="CaptureBounds">The part of the screen that was captured (today: the capture monitor).</param>
+/// <param name="CaptureBounds">The part of the screen that was captured: the capture monitor, or the area asked for.</param>
 /// <param name="VirtualDesktop">The area covering all monitors, for <see cref="NormalizedPoint"/>.</param>
 public sealed record FrameGeometry(int ImageWidth, int ImageHeight, ScreenRect CaptureBounds, ScreenRect VirtualDesktop)
 {

@@ -192,6 +192,18 @@ public sealed class FakeScreenTests
         }
     }
 
+    [Fact]
+    public async Task An_area_screenshot_returns_the_next_frame_and_is_recorded()
+    {
+        var screen = new FakeScreen([Png(100, 50), Png(200, 80)]);
+
+        await screen.ScreenshotAsync(ct: Ct);
+        var frame = await screen.ScreenshotAreaAsync(10, 20, 30, 40, Ct);
+
+        (frame.Width, frame.Height, frame.Sequence).ShouldBe((200, 80, 2));
+        screen.Actions[^1].ShouldBe(new AreaScreenshot(10, 20, 30, 40));
+    }
+
     // Only the PNG signature and the IHDR size fields matter to FakeScreen; the rest is not decoded.
     private static byte[] Png(int width, int height)
     {

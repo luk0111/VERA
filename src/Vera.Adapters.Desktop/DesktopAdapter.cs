@@ -1,22 +1,29 @@
 using System.Diagnostics;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Capturing;
+using FlaUI.Core.Definitions;
 using FlaUI.UIA3;
 
 using Vera.Core;
+using Vera.Input;
+
+using Windows.Win32;
+using Windows.Win32.Foundation;
 
 namespace Vera.Adapters.Desktop;
 
 /// <summary>
-/// Reads a running desktop app's window through UI Automation (FlaUI). For now it only attaches and looks:
-/// starting an app and acting on it come with the agent loop.
+/// Reads a running desktop app's window: its elements through UI Automation (FlaUI), its picture through <see cref="IScreenshotSource"/>.
+/// For now it only attaches and looks: starting an app and acting on it come with the agent loop.
 /// </summary>
-public sealed class DesktopAdapter : IAppAdapter
+public sealed class DesktopAdapter(IScreenshotSource screen) : IAppAdapter
 {
     private const string WindowGone = "The app is closed or has no window.";
+    private const string WindowMinimized = "The app's window is minimized. Restore it and try again.";
+
+    /// <summary>How long Windows gets to redraw a window it just brought to the front.</summary>
+    private static readonly TimeSpan RedrawTime = TimeSpan.FromMilliseconds(200);
 
     private readonly UIA3Automation _automation = new();
     private IntPtr _window;
@@ -50,7 +57,7 @@ public sealed class DesktopAdapter : IAppAdapter
         return Task.CompletedTask;
     }
 
-    /// <exception cref="InvalidOperationException">The window is gone.</exception>
+    /// <exception cref="InvalidOperationException">The window is gone or minimized, or the screen can't be seen.</exception>
     public Task<ScreenState> GetScreenStateAsync(CancellationToken ct)
     {
         if (_window == IntPtr.Zero)
@@ -59,7 +66,7 @@ public sealed class DesktopAdapter : IAppAdapter
         }
 
         // UI Automation calls block, so they run off the caller's thread.
-        return Task.Run(() => ReadWindow(ct), ct);
+        return Task.Run(() => ReadWindowAsync(ct), ct);
     }
 
     public Task ClickAsync(int elementId, CancellationToken ct) => throw ActingNotSupported();
@@ -74,11 +81,25 @@ public sealed class DesktopAdapter : IAppAdapter
         return ValueTask.CompletedTask;
     }
 
-    private ScreenState ReadWindow(CancellationToken ct)
+    private async Task<ScreenState> ReadWindowAsync(CancellationToken ct)
     {
         try
         {
             var window = _automation.FromHandle(_window);
+
+            // A minimized window sits off every monitor, so a screenshot of it would only be black.
+            if (window.Patterns.Window.PatternOrDefault?.WindowVisualState.ValueOrDefault == WindowVisualState.Minimized)
+            {
+                throw new InvalidOperationException(WindowMinimized);
+            }
+
+            // A screenshot copies what is on screen, so a window in front of the app would be sent to the model instead.
+            if (!AppIsInFront())
+            {
+                window.SetForeground();
+                await Task.Delay(RedrawTime, ct).ConfigureAwait(false);
+            }
+
             var r = window.BoundingRectangle;
             var bounds = new ScreenRect(r.X, r.Y, r.Width, r.Height);
             var title = window.Properties.Name.ValueOrDefault ?? "";
@@ -93,13 +114,26 @@ public sealed class DesktopAdapter : IAppAdapter
                 }
             }
 
-            return new ScreenState(title, ElementNumbering.Number(title, bounds, candidates), Screenshot(r), []);
+            var frame = await screen.ScreenshotAreaAsync(r.X, r.Y, r.Width, r.Height, ct).ConfigureAwait(false);
+            return new ScreenState(title, ElementNumbering.Number(title, bounds, candidates), frame.Png, []);
         }
         // FlaUI reports a window that has gone as ElementNotAvailableException, which has no message of its own.
         catch (Exception e) when (e is COMException or FlaUI.Core.Exceptions.ElementNotAvailableException)
         {
             throw new InvalidOperationException(WindowGone, e);
         }
+        catch (ScreenUnavailableException e)
+        {
+            throw new InvalidOperationException(e.Message, e);
+        }
+    }
+
+    // Compares processes, not windows: a dialog of the app counts as the app, and bringing the main window forward would take the focus from it.
+    private bool AppIsInFront()
+    {
+        _ = PInvoke.GetWindowThreadProcessId(PInvoke.GetForegroundWindow(), out var foreground);
+        _ = PInvoke.GetWindowThreadProcessId(new HWND(_window), out var app);
+        return foreground == app;
     }
 
     // An element can vanish while the tree is read; skip it rather than fail the whole read.
@@ -122,14 +156,6 @@ public sealed class DesktopAdapter : IAppAdapter
         {
             return null;
         }
-    }
-
-    private static byte[] Screenshot(System.Drawing.Rectangle area)
-    {
-        using var capture = Capture.Rectangle(area);
-        using var png = new MemoryStream();
-        capture.Bitmap.Save(png, ImageFormat.Png);
-        return png.ToArray();
     }
 
     private static NotSupportedException ActingNotSupported() => new("Acting on the app comes with the agent loop.");

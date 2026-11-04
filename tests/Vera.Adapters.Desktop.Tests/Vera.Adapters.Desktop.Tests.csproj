@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Vera.Adapters.Desktop/Vera.Adapters.Desktop.csproj" />
+    <ProjectReference Include="../../src/Vera.Input/Vera.Input.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
