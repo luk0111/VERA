@@ -32,6 +32,7 @@ internal static class HarnessApp
                 config.AddCommand<ScreenshotCommand>("screenshot").WithDescription("Saves a screenshot of the capture monitor as a PNG.");
                 config.AddCommand<MapCommand>("map").WithDescription("Shows where a point in a screenshot lands on the screen. Nothing moves.");
                 config.AddCommand<MouseCommand>("mouse").WithDescription("Shows live where the mouse is, on the screen and in a screenshot.");
+                config.AddCommand<ClickCommand>("click").WithDescription("Takes a screenshot, clicks a point in it and checks where the cursor landed.");
             });
 
             return await app.RunAsync(args);
@@ -55,6 +56,11 @@ internal static class HarnessApp
         catch (ScreenUnavailableException e)
         {
             AnsiConsole.MarkupLine($"[red]Screen unavailable ({e.Reason}):[/] {Markup.Escape(e.Message)}");
+            return 2;
+        }
+        catch (InputRejectedException e)
+        {
+            AnsiConsole.MarkupLine($"[red]Input rejected:[/] {Markup.Escape(e.Message)}");
             return 2;
         }
         catch (CommandAppException e)
