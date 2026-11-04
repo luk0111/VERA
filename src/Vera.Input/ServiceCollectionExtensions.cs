@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 using Vera.Input.Capture;
+using Vera.Input.Injection;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 using Vera.Input.Session;
@@ -35,11 +36,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISessionGuard, SessionGuard>();
         services.AddSingleton<IFrameValidator, BlackFrameValidator>();
         services.AddSingleton<IFrameEncoder, GdiPngFrameEncoder>();
+        services.AddSingleton<IInputSink, Win32InputSink>();
+        services.AddSingleton<MouseDriver>();
 
-        // One instance behind both interfaces, so the frame sequence is shared. IPointer and IKeyboard follow with M4–M6.
+        // One instance behind every interface, so clicks are mapped with the latest screenshot. IKeyboard follows with M5–M6.
         services.AddSingleton<DesktopScreen>();
         services.AddSingleton<IScreen>(sp => sp.GetRequiredService<DesktopScreen>());
         services.AddSingleton<IScreenshotSource>(sp => sp.GetRequiredService<DesktopScreen>());
+        services.AddSingleton<IPointer>(sp => sp.GetRequiredService<DesktopScreen>());
         return services;
     }
 }

@@ -33,3 +33,6 @@ WTS_CURRENT_SESSION
 
 // Cursor position (M3.2)
 GetCursorPos
+
+// Mouse and keyboard input (M4)
+SendInput
