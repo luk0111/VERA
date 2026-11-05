@@ -4,7 +4,7 @@ How VERA sees and controls the app under test. It only works with pixels on the 
 
 ## Rules
 
-- Agent and app code reference `Vera.Input.Abstractions` only. Only an exe references `Vera.Input`.
+- Agent and adapter code reference `Vera.Input.Abstractions` only. Only the wiring code references `Vera.Input`: `Vera.Application` (it calls `AddVeraInput`) and the tools.
 - Coordinates are pixels in the most recent screenshot. Out-of-range values throw and are never moved to the edge.
 - `ScreenUnavailableException` means stop the run. Retrying won't help.
 - Methods not built yet throw `NotImplementedException`, naming the milestone.
