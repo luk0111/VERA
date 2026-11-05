@@ -17,6 +17,9 @@ internal sealed class FakeChatClient(params string[] chunks) : IChatClient
     /// <summary>Runs after each chunk is yielded, e.g. to cancel the caller's token midway.</summary>
     public Action<int>? AfterChunk { get; init; }
 
+    /// <summary>When set, a last update reports this many output tokens, like a provider's usage at the end of a stream.</summary>
+    public long? OutputTokens { get; init; }
+
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -32,6 +35,11 @@ internal sealed class FakeChatClient(params string[] chunks) : IChatClient
             cancellationToken.ThrowIfCancellationRequested();
             yield return new ChatResponseUpdate(ChatRole.Assistant, chunks[i]);
             AfterChunk?.Invoke(i);
+        }
+
+        if (OutputTokens is { } tokens)
+        {
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new UsageContent(new UsageDetails { OutputTokenCount = tokens })]);
         }
     }
 

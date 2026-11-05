@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Spectre.Console;
@@ -182,7 +183,23 @@ internal static class ChatScreen
             AnsiConsole.Write(ReplyPanel(reply.ToString()));
         }
 
+        // Also after a blank reply: many tokens with no text means the model spent them on hidden reasoning.
+        if (session.LastReplyStats is { } stats)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(FormatStats(stats))}[/]");
+        }
+
         SetConnection(settings, app, session, ConnectionState.Connected, "");
+    }
+
+    // e.g. "212 tokens · 3.4 s · 62 tokens/s". Tokens include hidden reasoning, so they can exceed the visible text.
+    private static string FormatStats(ReplyStats stats)
+    {
+        var culture = CultureInfo.InvariantCulture;
+        var seconds = stats.Duration.TotalSeconds.ToString("0.0", culture) + " s";
+        return stats.OutputTokens is { } tokens && stats.TokensPerSecond is { } perSecond
+            ? $"{tokens.ToString(culture)} tokens · {seconds} · {perSecond.ToString("0", culture)} tokens/s"
+            : seconds;
     }
 
     private static void ShowError(AppSettings settings, RunningApp app, ChatSession session, Exception error)

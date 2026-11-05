@@ -111,6 +111,51 @@ public sealed class ChatSessionTests
     }
 
     [Fact]
+    public async Task A_finished_reply_has_stats_with_the_reported_output_tokens()
+    {
+        var session = NewSession(new FakeChatClient("a", "b") { OutputTokens = 42 });
+
+        await DrainAsync(session.StreamReplyAsync("hi", Ct));
+
+        var stats = session.LastReplyStats.ShouldNotBeNull();
+        stats.OutputTokens.ShouldBe(42);
+        stats.Duration.ShouldBeGreaterThanOrEqualTo(stats.GenerationTime);
+    }
+
+    [Fact]
+    public async Task Without_usage_from_the_provider_the_stats_have_no_token_count()
+    {
+        var session = NewSession(new FakeChatClient("a"));
+
+        await DrainAsync(session.StreamReplyAsync("hi", Ct));
+
+        var stats = session.LastReplyStats.ShouldNotBeNull();
+        stats.OutputTokens.ShouldBeNull();
+        stats.TokensPerSecond.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_failed_reply_has_no_stats()
+    {
+        var client = new FakeChatClient("a", "b") { Failure = new HttpRequestException("gone"), FailAfter = 1, OutputTokens = 5 };
+        var session = NewSession(client);
+
+        await Should.ThrowAsync<HttpRequestException>(() => DrainAsync(session.StreamReplyAsync("hi", Ct)));
+
+        session.LastReplyStats.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(100, 2.0, 50.0)]
+    [InlineData(1, 0.5, 2.0)]
+    public void TokensPerSecond_divides_output_tokens_by_generation_time(long tokens, double seconds, double expected)
+    {
+        var stats = new ReplyStats(TimeSpan.FromSeconds(seconds + 1), TimeSpan.FromSeconds(seconds), tokens);
+
+        stats.TokensPerSecond.ShouldBe(expected);
+    }
+
+    [Fact]
     public void Labels_come_from_the_profile()
     {
         var session = NewSession(new FakeChatClient());
