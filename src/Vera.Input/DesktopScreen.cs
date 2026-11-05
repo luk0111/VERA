@@ -121,7 +121,7 @@ internal sealed partial class DesktopScreen(
         }
     }
 
-    private ScreenFrame Capture(double scale)
+    private ScreenFrame Capture(ScreenRect bounds, double scale)
     {
         var display = Display();
 
