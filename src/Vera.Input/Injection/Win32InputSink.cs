@@ -8,7 +8,7 @@ using Windows.Win32.UI.Input.KeyboardAndMouse;
 
 namespace Vera.Input.Injection;
 
-/// <summary>Turns <see cref="InputEvent"/>s into Win32 <c>INPUT</c>s and injects them with <c>SendInput</c>.</summary>
+/// <summary>Turns <see cref="InputEvent"/>s into Win32 <c>INPUT</c>s (mouse or keyboard) and injects them with <c>SendInput</c>.</summary>
 internal sealed unsafe partial class Win32InputSink(ILogger<Win32InputSink> logger) : IInputSink
 {
     public void Send(params IReadOnlyList<InputEvent> events)
@@ -37,23 +37,31 @@ internal sealed unsafe partial class Win32InputSink(ILogger<Win32InputSink> logg
         }
     }
 
-    internal static INPUT ToInput(InputEvent e)
+    internal static INPUT ToInput(InputEvent e) => e.Kind switch
     {
-        var mouse = e.Kind switch
+        InputEventKind.MouseMove => Mouse(new MOUSEINPUT
         {
-            InputEventKind.MouseMove => new MOUSEINPUT
-            {
-                dx = e.Point.X,
-                dy = e.Point.Y,
-                dwFlags = MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE | MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK,
-            },
-            InputEventKind.MouseDown => new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: true) },
-            InputEventKind.MouseUp => new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: false) },
-            _ => throw new ArgumentOutOfRangeException(nameof(e), e.Kind, "Unknown input event kind."),
-        };
+            dx = e.Point.X,
+            dy = e.Point.Y,
+            dwFlags = MOUSE_EVENT_FLAGS.MOUSEEVENTF_MOVE | MOUSE_EVENT_FLAGS.MOUSEEVENTF_ABSOLUTE | MOUSE_EVENT_FLAGS.MOUSEEVENTF_VIRTUALDESK,
+        }),
+        InputEventKind.MouseDown => Mouse(new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: true) }),
+        InputEventKind.MouseUp => Mouse(new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: false) }),
+        InputEventKind.CharDown => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE),
+        InputEventKind.CharUp => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
+        InputEventKind.KeyDown => Keyboard(e.ScanCode, KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE),
+        InputEventKind.KeyUp => Keyboard(e.ScanCode, KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
+        _ => throw new ArgumentOutOfRangeException(nameof(e), e.Kind, "Unknown input event kind."),
+    };
 
-        return new INPUT { type = INPUT_TYPE.INPUT_MOUSE, Anonymous = { mi = mouse } };
-    }
+    private static INPUT Mouse(MOUSEINPUT mouse) => new() { type = INPUT_TYPE.INPUT_MOUSE, Anonymous = { mi = mouse } };
+
+    /// <summary>
+    /// <paramref name="scan"/> is a UTF-16 unit with <c>KEYEVENTF_UNICODE</c>, or a scancode with
+    /// <c>KEYEVENTF_SCANCODE</c>. The virtual-key code stays 0 in both cases.
+    /// </summary>
+    private static INPUT Keyboard(ushort scan, KEYBD_EVENT_FLAGS flags) =>
+        new() { type = INPUT_TYPE.INPUT_KEYBOARD, Anonymous = { ki = new KEYBDINPUT { wScan = scan, dwFlags = flags } } };
 
     private static MOUSE_EVENT_FLAGS ButtonFlag(MouseButton button, bool down) => button switch
     {

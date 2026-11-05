@@ -33,4 +33,29 @@ public sealed class Win32InputSinkTests
         downInput.Anonymous.mi.dx.ShouldBe(0);
         downInput.Anonymous.mi.dy.ShouldBe(0);
     }
+
+    [Fact]
+    public void A_character_is_sent_as_unicode()
+    {
+        var down = Win32InputSink.ToInput(InputEvent.CharDown('ș'));
+        var up = Win32InputSink.ToInput(InputEvent.CharUp('ș'));
+
+        down.type.ShouldBe(INPUT_TYPE.INPUT_KEYBOARD);
+        down.Anonymous.ki.wScan.ShouldBe((ushort)'ș');
+        down.Anonymous.ki.wVk.ShouldBe((VIRTUAL_KEY)0);
+        down.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE);
+        up.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP);
+    }
+
+    [Fact]
+    public void A_key_is_sent_by_scancode()
+    {
+        var down = Win32InputSink.ToInput(InputEvent.KeyDown(KeyboardDriver.EnterScanCode));
+        var up = Win32InputSink.ToInput(InputEvent.KeyUp(KeyboardDriver.EnterScanCode));
+
+        down.type.ShouldBe(INPUT_TYPE.INPUT_KEYBOARD);
+        down.Anonymous.ki.wScan.ShouldBe(KeyboardDriver.EnterScanCode);
+        down.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE);
+        up.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP);
+    }
 }
