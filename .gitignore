@@ -493,8 +493,8 @@ runs/
 # Restricted project documents
 VERA*.pdf
 
-# Claude Code context (local only)
-CLAUDE.md
+# Personal Claude Code notes (CLAUDE.md is shared)
+CLAUDE.local.md
 
 # Planning docs (local only)
 docs/
