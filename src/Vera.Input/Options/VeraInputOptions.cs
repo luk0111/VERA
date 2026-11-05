@@ -70,9 +70,12 @@ public sealed record DelayOptions
     [Range(0, 10000)]
     public int AfterClick { get; init; } = 300;
 
-    /// <summary>Between two typed characters (or Enter/Tab).</summary>
+    /// <summary>
+    /// Between two typed characters (or Enter/Tab). The Windows 11 Notepad loses characters at 10 ms (e.g. when
+    /// switching to Cyrillic) and works from 15 ms; 20 ms leaves some margin.
+    /// </summary>
     [Range(0, 5000)]
-    public int BetweenKeys { get; init; } = 10;
+    public int BetweenKeys { get; init; } = 20;
 
     /// <summary>After typing, so the app can redraw before the next screenshot.</summary>
     [Range(0, 10000)]
