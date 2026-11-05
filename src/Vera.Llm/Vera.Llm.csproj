@@ -10,4 +10,8 @@
     <PackageReference Include="OllamaSharp" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vera.Llm.Tests" />
+  </ItemGroup>
+
 </Project>
