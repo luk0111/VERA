@@ -11,13 +11,14 @@ namespace Vera.Input.Harness;
 
 /// <summary>
 /// The menu shown when the harness starts without a command. It asks a few questions, then runs the same command you
-/// could type (<c>info</c>, <c>screenshot</c>, <c>map</c>, <c>mouse</c>) with the answers as settings on top of appsettings.json.
+/// could type (<c>info</c>, <c>screenshot</c>, <c>map</c>, <c>mouse</c>, <c>click</c>) with the answers as settings on top of appsettings.json.
 /// </summary>
 internal static class HarnessMenu
 {
     private const string Screenshot = "Take a screenshot";
     private const string Map = "Map a point (screenshot → screen)";
     private const string Mouse = "Where's my mouse? (live)";
+    private const string Click = "Click a point (moves the real mouse)";
     private const string Info = "Show display info and settings";
     private const string Quit = "Quit";
 
@@ -27,7 +28,7 @@ internal static class HarnessMenu
         {
             var choice = AnsiConsole.Prompt(new SelectionPrompt<string>()
                 .Title("[bold]Vera.Input.Harness[/]: what do you want to test?")
-                .AddChoices(Screenshot, Map, Mouse, Info, Quit));
+                .AddChoices(Screenshot, Map, Mouse, Click, Info, Quit));
 
             switch (choice)
             {
@@ -39,6 +40,9 @@ internal static class HarnessMenu
                     break;
                 case Mouse:
                     await ShowMouseAsync();
+                    break;
+                case Click:
+                    await ClickPointAsync();
                     break;
                 case Info:
                     await HarnessApp.RunAsync(["info"]);
@@ -81,6 +85,36 @@ internal static class HarnessMenu
         AnsiConsole.WriteLine();
         await HarnessApp.RunAsync(
             ["map", x.ToString(CultureInfo.InvariantCulture), y.ToString(CultureInfo.InvariantCulture), "--scale", scale.ToString(CultureInfo.InvariantCulture)],
+            overrides);
+    }
+
+    private static async Task ClickPointAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        var monitor = AskMonitor(overrides);
+        var scale = AskScale(monitor.Bounds);
+        var (width, height) = FrameGeometry.ScaledSize(monitor.Bounds.Width, monitor.Bounds.Height, scale);
+
+        var x = AskCoordinate($"X in the screenshot (0–{width - 1}):", width);
+        var y = AskCoordinate($"Y in the screenshot (0–{height - 1}):", height);
+        var button = AnsiConsole.Prompt(new SelectionPrompt<MouseButton>()
+            .Title("Which button?")
+            .AddChoices(MouseButton.Left, MouseButton.Right, MouseButton.Middle));
+        var clicks = AnsiConsole.Prompt(new SelectionPrompt<int>()
+            .Title("How many clicks?")
+            .UseConverter(c => c switch { 1 => "1 (single)", 2 => "2 (double)", _ => "3 (triple)" })
+            .AddChoices(1, 2, 3));
+        var delay = AnsiConsole.Prompt(new TextPrompt<int>("Wait how many seconds first, to bring the target window to the front?")
+            .DefaultValue(3)
+            .Validate(seconds => seconds >= 0 ? ValidationResult.Success() : ValidationResult.Error("Can't be negative.")));
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(
+            [
+                "click", x.ToString(CultureInfo.InvariantCulture), y.ToString(CultureInfo.InvariantCulture),
+                "--button", button.ToString(), "--clicks", clicks.ToString(CultureInfo.InvariantCulture),
+                "--scale", scale.ToString(CultureInfo.InvariantCulture), "--delay", delay.ToString(CultureInfo.InvariantCulture),
+            ],
             overrides);
     }
 

@@ -130,6 +130,8 @@ internal static class ChatScreen
                 .Overflow(VerticalOverflow.Crop)
                 .StartAsync(async ctx =>
                 {
+                    // The live view draws nothing until it is refreshed, so "thinking…" would stay hidden until the first chunk.
+                    ctx.Refresh();
                     var sinceRedraw = Stopwatch.StartNew();
                     await foreach (var chunk in session.StreamReplyAsync(message, stop.Token))
                     {
@@ -172,7 +174,16 @@ internal static class ChatScreen
         }
 
         // The live view is cropped to the window height; print the full reply once it is complete.
-        AnsiConsole.Write(ReplyPanel(reply.ToString()));
+        if (string.IsNullOrWhiteSpace(reply.ToString()))
+        {
+            AnsiConsole.MarkupLine("[grey](no reply, send it again)[/]");
+        }
+        else
+        {
+            AnsiConsole.Write(ReplyPanel(reply.ToString()));
+        }
+
+        // Also after a blank reply: many tokens with no text means the model spent them on hidden reasoning.
         if (session.LastReplyStats is { } stats)
         {
             AnsiConsole.MarkupLine($"[grey]{Markup.Escape(FormatStats(stats))}[/]");

@@ -1,0 +1,5 @@
+// Win32 APIs that CsWin32 generates P/Invoke code for (internal, in Windows.Win32.PInvoke).
+
+// Whether the app is in front
+GetForegroundWindow
+GetWindowThreadProcessId

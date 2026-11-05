@@ -1,11 +1,16 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
+using Vera.Core;
+
 namespace Vera.Llm;
 
 public static class LlmServiceCollectionExtensions
 {
-    /// <summary>Registers the profile, the <see cref="IChatClient"/> and the <see cref="IConnectionChecker"/> for its provider. Only <c>Ollama</c> is supported for now.</summary>
+    /// <summary>
+    /// Registers the profile, the <see cref="IChatClient"/>, the <see cref="ILlmClient"/> on top of it and the <see cref="IConnectionChecker"/> for its provider.
+    /// Only <c>Ollama</c> is supported for now.
+    /// </summary>
     public static IServiceCollection AddVeraLlm(this IServiceCollection services, LlmProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -17,6 +22,7 @@ public static class LlmServiceCollectionExtensions
 
         services.AddSingleton(profile);
         services.AddSingleton(_ => OllamaChatClientFactory.Create(profile));
+        services.AddSingleton<ILlmClient>(sp => new ChatLlmClient(sp.GetRequiredService<IChatClient>()));
         services.AddSingleton<IConnectionChecker>(_ => new OllamaConnectionChecker(new HttpClient { BaseAddress = BaseAddress(profile.Endpoint) }));
         return services;
     }

@@ -1,6 +1,6 @@
 # Vera.Input
 
-This part of VERA is its eyes and hands. It looks at the screen by taking screenshots, and it will soon use the mouse and keyboard the way a person does.
+This part of VERA is its eyes and hands. It looks at the screen by taking screenshots and uses the mouse the way a person does. The keyboard comes next.
 
 It only works with what's visible on the screen, so it doesn't need to know how the app being tested was built.
 
@@ -9,8 +9,9 @@ It only works with what's visible on the screen, so it doesn't need to know how 
 | Feature | Ready? |
 |---|---|
 | Take a screenshot, at full size or smaller | Yes |
+| Take a screenshot of one area, such as an app's window | Yes |
 | Work out where a point in a screenshot is on the real screen | Yes |
-| Move the mouse and click | Not yet |
+| Move the mouse and click (left, right, middle; single, double, triple) | Yes |
 | Type text | Not yet |
 | Press key combinations, such as Ctrl+S | Not yet |
 | Scroll, drag and hover | Not yet |
@@ -25,7 +26,7 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). Open a termin
 dotnet run --project tools/Vera.Input.Harness
 ```
 
-A small menu opens where you can take a screenshot or check the screen setup. Screenshots are saved in `runs/manual/`, and details of each run go in `logs/`.
+A small menu opens where you can take a screenshot, click a point or check the screen setup. Screenshots are saved in `runs/manual/`, and details of each run go in `logs/`.
 
 ## If something goes wrong
 
@@ -34,6 +35,7 @@ VERA stops and shows a message explaining the problem. The most common causes ar
 - **The PC is locked or asleep:** unlock it and try again.
 - **The screenshot is completely black:** the screen is probably off, asleep or disconnected.
 - **A setting is wrong:** the message names the setting. Settings are in `appsettings.json`.
+- **Input rejected:** Windows refused the mouse input. Usually the app being tested runs as administrator and VERA doesn't; run both the same way.
 
 ## For developers
 

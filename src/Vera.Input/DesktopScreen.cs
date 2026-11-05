@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 using Vera.Input.Capture;
 using Vera.Input.Coordinates;
+using Vera.Input.Injection;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 using Vera.Input.Session;
@@ -14,8 +15,9 @@ namespace Vera.Input;
 /// <summary>
 /// The Windows <see cref="IScreen"/>: puts the building blocks together. On first use it checks the DPI awareness and
 /// the display (<see cref="IDisplayCheck"/>) and remembers the capture monitor. Before every screenshot the
-/// <see cref="ISessionGuard"/> checks the session and the RDP window.
-/// Mouse and keyboard come in later milestones and throw <see cref="NotImplementedException"/> until then.
+/// <see cref="ISessionGuard"/> checks the session and the RDP window, and so it does before every mouse action.
+/// Mouse actions map the caller's point with the latest screenshot (<see cref="CurrentGeometry"/>).
+/// Features of later milestones throw <see cref="NotImplementedException"/> until then.
 /// </summary>
 internal sealed partial class DesktopScreen(
     IDisplayCheck displayCheck,
@@ -23,6 +25,7 @@ internal sealed partial class DesktopScreen(
     IScreenGrabber grabber,
     IFrameValidator validator,
     IFrameEncoder encoder,
+    MouseDriver mouse,
     IOptions<VeraInputOptions> options,
     ILogger<DesktopScreen> logger) : IScreen
 {
@@ -40,14 +43,32 @@ internal sealed partial class DesktopScreen(
         }
 
         ct.ThrowIfCancellationRequested();
-        return Task.Run(() => Capture(effectiveScale), ct);
+        return Task.Run(() => Capture(Display().CaptureMonitor.Bounds, effectiveScale), ct);
     }
 
-    public Task MoveAsync(int x, int y, CancellationToken ct = default) =>
-        throw new NotImplementedException("Mouse input comes in Milestone 4.");
+    public Task<ScreenFrame> ScreenshotAreaAsync(int left, int top, int width, int height, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.Run(() => Capture(new ScreenRect(left, top, width, height), 1), ct);
+    }
 
-    public Task ClickAsync(int x, int y, MouseButton button = MouseButton.Left, int clicks = 1, CancellationToken ct = default) =>
-        throw new NotImplementedException("Mouse input comes in Milestone 4.");
+    public async Task MoveAsync(int x, int y, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var (screen, normalized) = Target(x, y);
+        LogMove(logger, x, y, screen);
+        await mouse.MoveAsync(normalized, ct);
+    }
+
+    public async Task ClickAsync(int x, int y, MouseButton button = MouseButton.Left, int clicks = 1, CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(clicks, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(clicks, MouseDriver.MaxClicks);
+        ct.ThrowIfCancellationRequested();
+        var (screen, normalized) = Target(x, y);
+        LogClick(logger, button, clicks, x, y, screen);
+        await mouse.ClickAsync(normalized, button, clicks, ct);
+    }
 
     public Task ScrollAsync(int x, int y, int deltaY, int deltaX = 0, CancellationToken ct = default) =>
         throw new NotImplementedException("Scrolling comes in Milestone 7.");
@@ -75,16 +96,40 @@ internal sealed partial class DesktopScreen(
         }
     }
 
-    private ScreenFrame Capture(double scale)
+    /// <summary>
+    /// Maps a point in the latest screenshot to the screen and to Windows mouse units, after checking that the screen
+    /// can be controlled.
+    /// </summary>
+    private (ScreenPoint Screen, NormalizedPoint Normalized) Target(int x, int y)
     {
-        var display = Display();
-        var bounds = display.CaptureMonitor.Bounds;
+        var frame = CurrentGeometry();
+        var screen = CoordinateMapper.ImageToScreen(frame, new ImagePoint(x, y));
+        EnsureReady(frame.CaptureBounds);
+        return (screen, CoordinateMapper.ScreenToNormalized(frame.VirtualDesktop, screen));
+    }
 
-        var stopwatch = Stopwatch.StartNew();
-        RawFrame raw;
+    private void EnsureReady(ScreenRect bounds)
+    {
         try
         {
             guard.EnsureReady(bounds);
+        }
+        catch (ScreenUnavailableException e)
+        {
+            LogRejected(logger, e.Reason, e.Message);
+            throw;
+        }
+    }
+
+    private ScreenFrame Capture(ScreenRect bounds, double scale)
+    {
+        var display = Display();
+
+        var stopwatch = Stopwatch.StartNew();
+        EnsureReady(bounds);
+        RawFrame raw;
+        try
+        {
             raw = grabber.Grab(bounds);
             validator.Validate(raw);
         }
@@ -132,6 +177,12 @@ internal sealed partial class DesktopScreen(
     [LoggerMessage(Level = LogLevel.Information, Message = "Screenshot {Sequence}: {Width}×{Height}, grab {GrabMs} ms, encode {EncodeMs} ms, {Bytes} bytes")]
     private static partial void LogCaptured(ILogger logger, long sequence, int width, int height, long grabMs, long encodeMs, int bytes);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Screenshot rejected ({Reason}): {Detail}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Move to {X},{Y} in the screenshot → {Screen} on screen")]
+    private static partial void LogMove(ILogger logger, int x, int y, ScreenPoint screen);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Click {Button} ×{Clicks} at {X},{Y} in the screenshot → {Screen} on screen")]
+    private static partial void LogClick(ILogger logger, MouseButton button, int clicks, int x, int y, ScreenPoint screen);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Screen not ready ({Reason}): {Detail}")]
     private static partial void LogRejected(ILogger logger, ScreenUnavailableReason reason, string detail);
 }
