@@ -32,6 +32,7 @@ public sealed class AddVeraInputTests
     [InlineData("VeraInput:Display:MonitorIndex", "99", "MonitorIndex")]
     [InlineData("VeraInput:Capture:DefaultScale", "1.5", "DefaultScale")]
     [InlineData("VeraInput:Rdp:WindowClass", "", "WindowClass")]
+    [InlineData("VeraInput:Delays:AfterClick", "-1", "AfterClick")]
     public void An_invalid_value_fails_naming_the_setting(string key, string value, string setting)
     {
         var e = Should.Throw<OptionsValidationException>(() => Options((key, value)));

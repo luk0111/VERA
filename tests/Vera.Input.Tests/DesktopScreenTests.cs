@@ -2,9 +2,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Vera.Input.Capture;
 using Vera.Input.Coordinates;
+using Vera.Input.Injection;
 using Vera.Input.Options;
 using Vera.Input.Platform;
 using Vera.Input.Session;
+using Vera.Input.Tests.Injection;
 
 using MsOptions = Microsoft.Extensions.Options.Options;
 
@@ -20,6 +22,7 @@ public sealed class DesktopScreenTests
     private readonly IScreenGrabber _grabber = Substitute.For<IScreenGrabber>();
     private readonly IFrameValidator _validator = Substitute.For<IFrameValidator>();
     private readonly IFrameEncoder _encoder = Substitute.For<IFrameEncoder>();
+    private readonly RecordingSink _sink = new();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -164,12 +167,77 @@ public sealed class DesktopScreenTests
         _grabber.DidNotReceive().Grab(Arg.Any<ScreenRect>());
     }
 
-    private DesktopScreen Screen(CaptureOptions? capture = null) => new(
-        _displayCheck,
-        _guard,
-        _grabber,
-        _validator,
-        _encoder,
-        MsOptions.Create(new VeraInputOptions { Capture = capture ?? new CaptureOptions() }),
-        NullLogger<DesktopScreen>.Instance);
+    // The monitor is the whole virtual desktop here, so its centre (2880,540) is (32768,32768) in mouse units.
+    [Fact]
+    public async Task A_click_lands_on_the_screen_pixel_of_the_screenshot_point()
+    {
+        await Screen(new CaptureOptions { DefaultScale = 0.5 }).ClickAsync(480, 270, MouseButton.Right, 2, Ct);
+
+        _sink.Events.ShouldBe([
+            InputEvent.MouseMove(new NormalizedPoint(32768, 32768)),
+            InputEvent.MouseDown(MouseButton.Right),
+            InputEvent.MouseUp(MouseButton.Right),
+            InputEvent.MouseDown(MouseButton.Right),
+            InputEvent.MouseUp(MouseButton.Right),
+        ]);
+    }
+
+    [Fact]
+    public async Task A_move_goes_to_the_screen_pixel_of_the_screenshot_point()
+    {
+        await Screen().MoveAsync(0, 0, Ct);
+
+        _sink.Events.ShouldBe([InputEvent.MouseMove(new NormalizedPoint(0, 0))]);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(1920, 0)]
+    [InlineData(0, 1080)]
+    public async Task A_point_outside_the_screenshot_throws_and_sends_nothing(int x, int y)
+    {
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => Screen().ClickAsync(x, y, ct: Ct));
+
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task When_the_guard_refuses_no_input_is_sent()
+    {
+        _guard.When(g => g.EnsureReady(Arg.Any<ScreenRect>()))
+            .Do(_ => throw new ScreenUnavailableException(ScreenUnavailableReason.WorkstationLocked, "locked"));
+
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ClickAsync(10, 10, ct: Ct));
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().MoveAsync(10, 10, Ct));
+
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public async Task A_click_count_outside_1_to_3_throws(int clicks)
+    {
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => Screen().ClickAsync(10, 10, clicks: clicks, ct: Ct));
+
+        _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
+    }
+
+    private DesktopScreen Screen(CaptureOptions? capture = null)
+    {
+        var options = MsOptions.Create(new VeraInputOptions
+        {
+            Capture = capture ?? new CaptureOptions(),
+            Delays = new DelayOptions { AfterMove = 0, MouseDownUp = 0, BetweenClicks = 0, AfterClick = 0 },
+        });
+        return new(
+            _displayCheck,
+            _guard,
+            _grabber,
+            _validator,
+            _encoder,
+            new MouseDriver(_sink, options, TimeProvider.System),
+            options,
+            NullLogger<DesktopScreen>.Instance);
+    }
 }

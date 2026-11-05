@@ -17,6 +17,9 @@ public sealed record VeraInputOptions
 
     [ValidateObjectMembers]
     public RdpOptions Rdp { get; init; } = new();
+
+    [ValidateObjectMembers]
+    public DelayOptions Delays { get; init; } = new();
 }
 
 public sealed record DisplayOptions
@@ -43,6 +46,29 @@ public sealed record RdpOptions
     public string WindowClass { get; init; } = "TscShellContainerClass";
 
     public bool RequireForeground { get; init; } = true;
+}
+
+/// <summary>Pauses around mouse actions, in milliseconds, so the app has time to react.</summary>
+public sealed record DelayOptions
+{
+    /// <summary>After moving the mouse, so the app sees the pointer before a click.</summary>
+    [Range(0, 5000)]
+    public int AfterMove { get; init; } = 50;
+
+    /// <summary>How long a button stays pressed.</summary>
+    [Range(0, 5000)]
+    public int MouseDownUp { get; init; } = 50;
+
+    /// <summary>
+    /// Between the clicks of a double or triple click. <c>MouseDownUp</c> + <c>BetweenClicks</c> must stay under the
+    /// Windows double-click time (500 ms by default), or Windows sees separate clicks.
+    /// </summary>
+    [Range(0, 5000)]
+    public int BetweenClicks { get; init; } = 80;
+
+    /// <summary>After a click, so the app can redraw before the next screenshot.</summary>
+    [Range(0, 10000)]
+    public int AfterClick { get; init; } = 300;
 }
 
 /// <summary>Checks the data annotations above, including the nested sections. Generated at compile time.</summary>
