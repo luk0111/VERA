@@ -7,6 +7,13 @@ public interface IScreenshotSource
 {
     /// <param name="scale">Image size relative to the screen, e.g. 0.5. <c>null</c> uses the configured default.</param>
     Task<ScreenFrame> ScreenshotAsync(double? scale = null, CancellationToken ct = default);
+
+    /// <summary>Takes one area of the screen at full size, e.g. an app's window. Gets the same checks as <see cref="ScreenshotAsync"/>.</summary>
+    /// <param name="left">The area's left edge in physical screen pixels. It can be negative on multi-monitor setups.</param>
+    /// <param name="top">The area's top edge in physical screen pixels.</param>
+    /// <param name="width">The area's width in pixels.</param>
+    /// <param name="height">The area's height in pixels.</param>
+    Task<ScreenFrame> ScreenshotAreaAsync(int left, int top, int width, int height, CancellationToken ct = default);
 }
 
 public interface IPointer

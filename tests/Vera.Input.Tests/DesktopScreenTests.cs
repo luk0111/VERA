@@ -44,6 +44,43 @@ public sealed class DesktopScreenTests
     }
 
     [Fact]
+    public async Task An_area_screenshot_grabs_that_area_at_full_size_whatever_the_default_scale()
+    {
+        _encoder.Encode(Arg.Any<RawFrame>(), 1.0).Returns(new EncodedImage([1], 640, 480));
+
+        var frame = await Screen(new CaptureOptions { DefaultScale = 0.5 }).ScreenshotAreaAsync(2000, 100, 640, 480, Ct);
+
+        _grabber.Received(1).Grab(new ScreenRect(2000, 100, 640, 480));
+        frame.ShouldBe(new ScreenFrame(640, 480, 1.0, 640, 480, frame.Png, Time, 1));
+    }
+
+    [Fact]
+    public async Task An_area_screenshot_gets_the_same_checks_as_a_full_one()
+    {
+        var area = new ScreenRect(2000, 100, 640, 480);
+
+        await Screen().ScreenshotAreaAsync(2000, 100, 640, 480, Ct);
+
+        Received.InOrder(() =>
+        {
+            _guard.EnsureReady(area);
+            _grabber.Grab(area);
+            _validator.Validate(Arg.Is<RawFrame>(f => f.Bounds == area));
+        });
+    }
+
+    [Fact]
+    public async Task After_an_area_screenshot_clicks_are_mapped_with_that_area()
+    {
+        _encoder.Encode(Arg.Any<RawFrame>(), 1.0).Returns(new EncodedImage([1], 640, 480));
+        var screen = Screen();
+
+        await screen.ScreenshotAreaAsync(2000, 100, 640, 480, Ct);
+
+        screen.CurrentGeometry().ShouldBe(new FrameGeometry(640, 480, new ScreenRect(2000, 100, 640, 480), Monitor.Bounds));
+    }
+
+    [Fact]
     public void Before_the_first_screenshot_clicks_are_mapped_at_the_configured_scale()
     {
         var geometry = Screen(new CaptureOptions { DefaultScale = 0.5 }).CurrentGeometry();

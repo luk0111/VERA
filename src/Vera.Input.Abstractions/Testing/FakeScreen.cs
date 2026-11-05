@@ -67,15 +67,13 @@ public sealed class FakeScreen : IScreen
             throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be greater than 0 and at most 1.");
         }
 
-        lock (_lock)
-        {
-            var (png, width, height) = _frames[_sequence % _frames.Length];
-            _sequence++;
-            _width = width;
-            _height = height;
-            _actions.Add(new Screenshot(scale));
-            return Task.FromResult(new ScreenFrame(width, height, 1, width, height, png, _timeProvider.GetUtcNow(), _sequence));
-        }
+        return NextFrame(new Screenshot(scale));
+    }
+
+    public Task<ScreenFrame> ScreenshotAreaAsync(int left, int top, int width, int height, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return NextFrame(new AreaScreenshot(left, top, width, height));
     }
 
     public Task MoveAsync(int x, int y, CancellationToken ct = default) =>
@@ -109,6 +107,19 @@ public sealed class FakeScreen : IScreen
 
         ArgumentOutOfRangeException.ThrowIfLessThan(repeat, 1);
         return Record(new KeyPressed(combo, repeat), ct);
+    }
+
+    private Task<ScreenFrame> NextFrame(RecordedAction action)
+    {
+        lock (_lock)
+        {
+            var (png, width, height) = _frames[_sequence % _frames.Length];
+            _sequence++;
+            _width = width;
+            _height = height;
+            _actions.Add(action);
+            return Task.FromResult(new ScreenFrame(width, height, 1, width, height, png, _timeProvider.GetUtcNow(), _sequence));
+        }
     }
 
     private Task Record(RecordedAction action, CancellationToken ct, params ReadOnlySpan<(int X, int Y)> points)

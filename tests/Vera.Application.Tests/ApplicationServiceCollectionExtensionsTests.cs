@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using Vera.Core;
 using Vera.Llm;
 
 namespace Vera.Application.Tests;
@@ -29,6 +30,26 @@ public sealed class ApplicationServiceCollectionExtensionsTests
         session.ModelName.ShouldBe("qwen3-vl:8b");
         provider.GetRequiredService<ChatSession>().ShouldNotBeSameAs(session);
         provider.GetRequiredService<LocalModelInfo>().ShouldBe(new LocalModelInfo("Local", "qwen3-vl:8b"));
+    }
+
+    [Fact]
+    public void A_valid_configuration_also_creates_find_element_services()
+    {
+        using var provider = Build(ValidConfig);
+
+        provider.GetRequiredService<FindElementService>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void Adapters_are_new_each_time_and_not_held_by_the_container()
+    {
+        var provider = Build(ValidConfig);
+        var newAdapter = provider.GetRequiredService<Func<IAppAdapter>>();
+
+        newAdapter().ShouldNotBeSameAs(newAdapter());
+
+        // The container would throw here if it tracked an adapter, since adapters are only IAsyncDisposable.
+        Should.NotThrow(provider.Dispose);
     }
 
     [Fact]

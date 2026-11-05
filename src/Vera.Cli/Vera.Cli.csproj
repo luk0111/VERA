@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>$(VeraWindowsTfm)</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- Declares Per-Monitor V2 DPI awareness, so element bounds match window screenshots. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

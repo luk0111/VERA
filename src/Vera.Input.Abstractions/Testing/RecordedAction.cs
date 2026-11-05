@@ -5,6 +5,8 @@ public abstract record RecordedAction;
 
 public sealed record Screenshot(double? Scale) : RecordedAction;
 
+public sealed record AreaScreenshot(int Left, int Top, int Width, int Height) : RecordedAction;
+
 public sealed record Moved(int X, int Y) : RecordedAction;
 
 public sealed record Clicked(int X, int Y, MouseButton Button, int Clicks) : RecordedAction;

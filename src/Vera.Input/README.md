@@ -9,6 +9,7 @@ It only works with what's visible on the screen, so it doesn't need to know how 
 | Feature | Ready? |
 |---|---|
 | Take a screenshot, at full size or smaller | Yes |
+| Take a screenshot of one area, such as an app's window | Yes |
 | Work out where a point in a screenshot is on the real screen | Yes |
 | Move the mouse and click (left, right, middle; single, double, triple) | Yes |
 | Type text | Not yet |
