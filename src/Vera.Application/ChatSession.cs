@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -31,6 +32,9 @@ public sealed class ChatSession
 
     internal IReadOnlyList<ChatMessage> History => _history;
 
+    /// <summary>Stats of the last reply that finished normally; null before the first one and after a failed or stopped reply.</summary>
+    public ReplyStats? LastReplyStats { get; private set; }
+
     public Task<ConnectionStatus> CheckConnectionAsync(CancellationToken ct) =>
         _connectionChecker.CheckAsync(_profile, ct);
 
@@ -41,12 +45,22 @@ public sealed class ChatSession
     public async IAsyncEnumerable<string> StreamReplyAsync(string userText, [EnumeratorCancellation] CancellationToken ct)
     {
         _history.Add(new ChatMessage(ChatRole.User, userText));
+        LastReplyStats = null;
 
         var reply = new StringBuilder();
+        var sinceSend = Stopwatch.StartNew();
+        TimeSpan? firstUpdate = null;
+        long? outputTokens = null;
         // A snapshot, so the client never sees the history change while it streams.
         await foreach (var update in _chatClient.GetStreamingResponseAsync(_history.ToArray(), cancellationToken: ct).ConfigureAwait(false))
         {
             ct.ThrowIfCancellationRequested();
+            firstUpdate ??= sinceSend.Elapsed;
+            foreach (var usage in update.Contents.OfType<UsageContent>())
+            {
+                outputTokens = usage.Details.OutputTokenCount ?? outputTokens;
+            }
+
             if (string.IsNullOrEmpty(update.Text))
             {
                 continue;
@@ -57,6 +71,8 @@ public sealed class ChatSession
         }
 
         _history.Add(new ChatMessage(ChatRole.Assistant, reply.ToString()));
+        var duration = sinceSend.Elapsed;
+        LastReplyStats = new ReplyStats(duration, duration - (firstUpdate ?? duration), outputTokens);
     }
 
     /// <summary>Forgets the conversation; only the system message stays.</summary>
