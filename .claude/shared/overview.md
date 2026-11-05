@@ -17,7 +17,7 @@ Stack: C# on .NET 10, Spectre.Console, SQLite. The model can be local, in-house 
 | Project | What it does now |
 |---|---|
 | `Vera.Core` | Shared types: test task, verdict, agent action and step, UI element, screen state, `IAppAdapter`, `ILlmClient`, `{{secret:name}}` placeholders |
-| `Vera.Input.Abstractions`, `Vera.Input` | Screenshots (whole monitor or one area), coordinate mapping, mouse move and click. See [input.md](input.md) |
+| `Vera.Input.Abstractions`, `Vera.Input` | Screenshots (whole monitor or one area), coordinate mapping, mouse move and click, typing text. See [input.md](input.md) |
 | `Vera.Adapters.Desktop` | Reads a running window's elements with UI Automation (FlaUI), numbers them, and takes its screenshot through `Vera.Input` |
 | `Vera.Llm` | Connects to the model (Ollama for now) through `Microsoft.Extensions.AI`. Draws element numbers on the screenshot (Set-of-Marks) and asks the model for one action |
 | `Vera.Reporting` | Draws a red box around an element on a screenshot |
