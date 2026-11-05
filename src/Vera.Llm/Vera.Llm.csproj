@@ -15,4 +15,8 @@
     <InternalsVisibleTo Include="Vera.Llm.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vera.Llm.Tests" />
+  </ItemGroup>
+
 </Project>

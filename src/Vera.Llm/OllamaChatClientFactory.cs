@@ -18,6 +18,7 @@ internal static class OllamaChatClientFactory
 
         // Apply the profile's options to every request, so callers stay provider-agnostic and pass no Ollama options.
         return new ChatClientBuilder(ollama)
+            .Use(inner => new ReasoningFallbackChatClient(inner))
             .ConfigureOptions(options => options
                 .AddOllamaOption(OllamaOption.NumCtx, profile.ContextSize)
                 .AddOllamaOption(OllamaOption.Think, profile.Think))

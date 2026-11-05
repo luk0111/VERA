@@ -77,6 +77,16 @@ public sealed class ChatSessionTests
     }
 
     [Fact]
+    public async Task A_blank_reply_keeps_the_user_message_and_adds_no_assistant_message()
+    {
+        var session = NewSession(new FakeChatClient(" ", "\n"));
+
+        await DrainAsync(session.StreamReplyAsync("hi", Ct));
+
+        session.History.Select(m => m.Role).ShouldBe([ChatRole.System, ChatRole.User]);
+    }
+
+    [Fact]
     public async Task Reset_leaves_only_the_system_message()
     {
         var session = NewSession(new FakeChatClient("ok"));
