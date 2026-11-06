@@ -38,12 +38,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IFrameEncoder, GdiPngFrameEncoder>();
         services.AddSingleton<IInputSink, Win32InputSink>();
         services.AddSingleton<MouseDriver>();
+        services.AddSingleton<KeyboardDriver>();
 
-        // One instance behind every interface, so clicks are mapped with the latest screenshot. IKeyboard follows with M5–M6.
+        // One instance behind every interface, so clicks are mapped with the latest screenshot.
         services.AddSingleton<DesktopScreen>();
         services.AddSingleton<IScreen>(sp => sp.GetRequiredService<DesktopScreen>());
         services.AddSingleton<IScreenshotSource>(sp => sp.GetRequiredService<DesktopScreen>());
         services.AddSingleton<IPointer>(sp => sp.GetRequiredService<DesktopScreen>());
+        services.AddSingleton<IKeyboard>(sp => sp.GetRequiredService<DesktopScreen>());
         return services;
     }
 }

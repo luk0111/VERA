@@ -15,8 +15,8 @@ namespace Vera.Input;
 /// <summary>
 /// The Windows <see cref="IScreen"/>: puts the building blocks together. On first use it checks the DPI awareness and
 /// the display (<see cref="IDisplayCheck"/>) and remembers the capture monitor. Before every screenshot the
-/// <see cref="ISessionGuard"/> checks the session and the RDP window, and so it does before every mouse action.
-/// Mouse actions map the caller's point with the latest screenshot (<see cref="CurrentGeometry"/>).
+/// <see cref="ISessionGuard"/> checks the session and the RDP window, and so it does before every mouse and keyboard
+/// action. Mouse actions map the caller's point with the latest screenshot (<see cref="CurrentGeometry"/>).
 /// Features of later milestones throw <see cref="NotImplementedException"/> until then.
 /// </summary>
 internal sealed partial class DesktopScreen(
@@ -26,6 +26,7 @@ internal sealed partial class DesktopScreen(
     IFrameValidator validator,
     IFrameEncoder encoder,
     MouseDriver mouse,
+    KeyboardDriver keyboard,
     IOptions<VeraInputOptions> options,
     ILogger<DesktopScreen> logger) : IScreen
 {
@@ -76,8 +77,27 @@ internal sealed partial class DesktopScreen(
     public Task DragAsync(int fromX, int fromY, int toX, int toY, MouseButton button = MouseButton.Left, CancellationToken ct = default) =>
         throw new NotImplementedException("Dragging comes in Milestone 7.");
 
-    public Task TypeTextAsync(string text, TypeTextOptions? options = null, CancellationToken ct = default) =>
-        throw new NotImplementedException("Typing comes in Milestone 5.");
+    public async Task TypeTextAsync(string text, TypeTextOptions? options = null, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ct.ThrowIfCancellationRequested();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        EnsureReady(CurrentGeometry().CaptureBounds);
+        if (options?.Sensitive == true)
+        {
+            LogTypeSensitive(logger, text.Length);
+        }
+        else
+        {
+            LogType(logger, text.Length, text);
+        }
+
+        await keyboard.TypeAsync(text, ct);
+    }
 
     public Task KeyAsync(string combo, int repeat = 1, CancellationToken ct = default) =>
         throw new NotImplementedException("Key combos come in Milestone 6.");
@@ -182,6 +202,12 @@ internal sealed partial class DesktopScreen(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Click {Button} ×{Clicks} at {X},{Y} in the screenshot → {Screen} on screen")]
     private static partial void LogClick(ILogger logger, MouseButton button, int clicks, int x, int y, ScreenPoint screen);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Type {Length} characters: {Text}")]
+    private static partial void LogType(ILogger logger, int length, string text);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Type {Length} characters (sensitive, not logged)")]
+    private static partial void LogTypeSensitive(ILogger logger, int length);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Screen not ready ({Reason}): {Detail}")]
     private static partial void LogRejected(ILogger logger, ScreenUnavailableReason reason, string detail);

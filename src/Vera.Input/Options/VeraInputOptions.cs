@@ -48,7 +48,7 @@ public sealed record RdpOptions
     public bool RequireForeground { get; init; } = true;
 }
 
-/// <summary>Pauses around mouse actions, in milliseconds, so the app has time to react.</summary>
+/// <summary>Pauses around mouse and keyboard actions, in milliseconds, so the app has time to react.</summary>
 public sealed record DelayOptions
 {
     /// <summary>After moving the mouse, so the app sees the pointer before a click.</summary>
@@ -69,6 +69,17 @@ public sealed record DelayOptions
     /// <summary>After a click, so the app can redraw before the next screenshot.</summary>
     [Range(0, 10000)]
     public int AfterClick { get; init; } = 300;
+
+    /// <summary>
+    /// Between two typed characters (or Enter/Tab). The Windows 11 Notepad loses characters at 10 ms (e.g. when
+    /// switching to Cyrillic) and works from 15 ms; 20 ms leaves some margin.
+    /// </summary>
+    [Range(0, 5000)]
+    public int BetweenKeys { get; init; } = 20;
+
+    /// <summary>After typing, so the app can redraw before the next screenshot.</summary>
+    [Range(0, 10000)]
+    public int AfterType { get; init; } = 200;
 }
 
 /// <summary>Checks the data annotations above, including the nested sections. Generated at compile time.</summary>

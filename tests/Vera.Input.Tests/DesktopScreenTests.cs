@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging.Abstractions;
-
 using Vera.Input.Capture;
 using Vera.Input.Coordinates;
 using Vera.Input.Injection;
@@ -23,6 +21,7 @@ public sealed class DesktopScreenTests
     private readonly IFrameValidator _validator = Substitute.For<IFrameValidator>();
     private readonly IFrameEncoder _encoder = Substitute.For<IFrameEncoder>();
     private readonly RecordingSink _sink = new();
+    private readonly ListLogger<DesktopScreen> _logger = new();
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -246,6 +245,7 @@ public sealed class DesktopScreenTests
 
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ClickAsync(10, 10, ct: Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().MoveAsync(10, 10, Ct));
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().TypeTextAsync("a", ct: Ct));
 
         _sink.Events.ShouldBeEmpty();
     }
@@ -260,12 +260,44 @@ public sealed class DesktopScreenTests
         _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
     }
 
+    [Fact]
+    public async Task Typing_checks_the_capture_monitor_then_types()
+    {
+        await Screen().TypeTextAsync("ș\n", ct: Ct);
+
+        _guard.Received(1).EnsureReady(Monitor.Bounds);
+        _sink.Events.ShouldBe([
+            InputEvent.CharDown('ș'), InputEvent.CharUp('ș'),
+            InputEvent.KeyDown(KeyboardDriver.EnterScanCode), InputEvent.KeyUp(KeyboardDriver.EnterScanCode),
+        ]);
+        _logger.Messages.ShouldContain(m => m.Contains('ș'));
+    }
+
+    [Fact]
+    public async Task Sensitive_text_is_typed_but_not_logged()
+    {
+        await Screen().TypeTextAsync("hunter2", new TypeTextOptions(Sensitive: true), Ct);
+
+        _sink.Events.Count.ShouldBe(14);
+        _logger.Messages.ShouldNotBeEmpty();
+        _logger.Messages.ShouldAllBe(m => !m.Contains("hunter2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Empty_text_does_nothing()
+    {
+        await Screen().TypeTextAsync("", ct: Ct);
+
+        _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
+        _sink.Events.ShouldBeEmpty();
+    }
+
     private DesktopScreen Screen(CaptureOptions? capture = null)
     {
         var options = MsOptions.Create(new VeraInputOptions
         {
             Capture = capture ?? new CaptureOptions(),
-            Delays = new DelayOptions { AfterMove = 0, MouseDownUp = 0, BetweenClicks = 0, AfterClick = 0 },
+            Delays = new DelayOptions { AfterMove = 0, MouseDownUp = 0, BetweenClicks = 0, AfterClick = 0, BetweenKeys = 0, AfterType = 0 },
         });
         return new(
             _displayCheck,
@@ -274,7 +306,8 @@ public sealed class DesktopScreenTests
             _validator,
             _encoder,
             new MouseDriver(_sink, options, TimeProvider.System),
+            new KeyboardDriver(_sink, options, TimeProvider.System),
             options,
-            NullLogger<DesktopScreen>.Instance);
+            _logger);
     }
 }

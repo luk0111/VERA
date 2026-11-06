@@ -31,6 +31,11 @@ public interface IPointer
 
 public interface IKeyboard
 {
+    /// <summary>
+    /// Types <paramref name="text"/> into the focused window. <c>\n</c> presses Enter, <c>\t</c> presses Tab and
+    /// <c>\r</c> is skipped.
+    /// </summary>
+    /// <exception cref="ArgumentException">The text has another control character. Nothing is typed.</exception>
     Task TypeTextAsync(string text, TypeTextOptions? options = null, CancellationToken ct = default);
 
     /// <summary>Presses a key or combo, e.g. <c>enter</c>, <c>ctrl+s</c>, <c>alt+f4</c>, <paramref name="repeat"/> times.</summary>
