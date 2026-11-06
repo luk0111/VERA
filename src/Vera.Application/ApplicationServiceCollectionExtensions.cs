@@ -1,9 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+#if WINDOWS
 using Vera.Adapters.Desktop;
-using Vera.Core;
 using Vera.Input;
+#else
+using Vera.Adapters.Mac;
+#endif
+using Vera.Core;
 using Vera.Llm;
 
 namespace Vera.Application;
@@ -13,7 +17,7 @@ public static class ApplicationServiceCollectionExtensions
     /// <summary>
     /// Reads the default model profile from <c>Llm</c> in config, registers the model through <see cref="LlmServiceCollectionExtensions.AddVeraLlm"/>,
     /// and registers <see cref="ChatSession"/> as transient, so each chat starts empty.
-    /// Also registers the screen (<c>VeraInput</c> in config), the desktop adapter and <see cref="FindElementService"/>, which saves its screenshots under <c>runs/find</c>.
+    /// Also registers the screen and app adapter for this system (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/>, which saves its screenshots under <c>runs/find</c>.
     /// </summary>
     /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or the profile is missing or invalid.</exception>
     public static IServiceCollection AddVeraApplication(this IServiceCollection services, IConfiguration config)
@@ -33,8 +37,13 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton(new LocalModelInfo(profile.DisplayName, profile.Model));
         services.AddTransient<ChatSession>();
         services.AddLogging();
+#if WINDOWS
         services.AddVeraInput(config);
         services.AddVeraDesktopAdapter();
+        services.AddSingleton<IRunningAppSource, WindowsRunningApps>();
+#else
+        services.AddVeraMacAdapter();
+#endif
         services.AddTransient(sp => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
         return services;

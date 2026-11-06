@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(VeraTfm)</TargetFramework>
+    <!-- Required by LibraryImport for the macOS framework calls. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
+    <ProjectReference Include="../Vera.Input.Abstractions/Vera.Input.Abstractions.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same filtering and numbering as Windows. The Windows project can't be referenced from here, so the files are shared. -->
+    <Compile Include="../Vera.Adapters.Desktop/ElementNumbering.cs" Link="Shared/ElementNumbering.cs" />
+    <Compile Include="../Vera.Adapters.Desktop/RawElement.cs" Link="Shared/RawElement.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vera.Adapters.Mac.Tests" />
+  </ItemGroup>
+
+</Project>

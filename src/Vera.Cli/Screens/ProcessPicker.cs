@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using Spectre.Console;
+using Vera.Core;
 
 namespace Vera.Cli.Screens;
 
@@ -11,7 +11,7 @@ internal static class ProcessPicker
     private static readonly RunningApp Back = new(-2, "Back", string.Empty);
 
     /// <returns>The chosen app, or null when the tester chose Back.</returns>
-    public static RunningApp? Pick(AppSettings settings, string title)
+    public static RunningApp? Pick(AppSettings settings, IRunningAppSource runningApps, string title)
     {
         while (true)
         {
@@ -24,7 +24,7 @@ internal static class ProcessPicker
                 AnsiConsole.WriteLine();
             }
 
-            var apps = RunningApps();
+            var apps = RunningApps(runningApps);
             if (apps.Count == 0)
             {
                 AnsiConsole.MarkupLine("[yellow]No running apps with a window were found.[/] [grey]Start one and choose Refresh list.[/]");
@@ -55,28 +55,10 @@ internal static class ProcessPicker
         }
     }
 
-    // Apps with a visible main window, sorted by name, excluding VERA itself.
-    private static List<RunningApp> RunningApps()
+    // Sorted by name.
+    private static List<RunningApp> RunningApps(IRunningAppSource source)
     {
-        var apps = new List<RunningApp>();
-        foreach (var process in Process.GetProcesses())
-        {
-            using (process)
-            {
-                try
-                {
-                    if (process.Id != Environment.ProcessId && !string.IsNullOrWhiteSpace(process.MainWindowTitle))
-                    {
-                        apps.Add(new RunningApp(process.Id, process.ProcessName, process.MainWindowTitle));
-                    }
-                }
-                catch (InvalidOperationException)
-                {
-                    // The process exited while the list was being read.
-                }
-            }
-        }
-
+        var apps = source.List().Select(app => new RunningApp(app.ProcessId, app.Name, app.WindowTitle)).ToList();
         apps.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.ToString(), b.ToString()));
         return apps;
     }
@@ -85,5 +67,5 @@ internal static class ProcessPicker
 /// <summary>A running app the tester can pick. The id tells apart two windows with the same name.</summary>
 internal sealed record RunningApp(int Id, string Name, string WindowTitle)
 {
-    public override string ToString() => $"{Name}.exe ({Id}) - {WindowTitle}";
+    public override string ToString() => WindowTitle.Length == 0 ? $"{Name} ({Id})" : $"{Name} ({Id}) - {WindowTitle}";
 }

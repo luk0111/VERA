@@ -17,5 +17,10 @@
     <!-- Target frameworks used across the solution (see docs/plans/02). -->
     <VeraTfm>net10.0</VeraTfm>
     <VeraWindowsTfm>net10.0-windows10.0.19041.0</VeraWindowsTfm>
+    <!-- Lets the Windows-targeted projects compile on macOS and Linux. They still only run on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- For the app and its tests: the full Windows build on Windows, and the parts that run there on macOS and Linux. -->
+    <VeraHostTfm Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(VeraWindowsTfm)</VeraHostTfm>
+    <VeraHostTfm Condition="'$(VeraHostTfm)' == ''">$(VeraTfm)</VeraHostTfm>
   </PropertyGroup>
 </Project>

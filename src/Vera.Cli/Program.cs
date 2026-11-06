@@ -4,6 +4,7 @@ using Spectre.Console;
 using Vera.Application;
 using Vera.Cli;
 using Vera.Cli.Screens;
+using Vera.Core;
 
 ServiceProvider provider;
 try
@@ -28,6 +29,7 @@ catch (Exception e) when (e is VeraConfigurationException or FileNotFoundExcepti
 
 await using var services = provider;
 var settings = new AppSettings { LocalModel = services.GetRequiredService<LocalModelInfo>() };
+var runningApps = services.GetRequiredService<IRunningAppSource>();
 
 while (true)
 {
@@ -50,10 +52,10 @@ while (true)
     switch (choice)
     {
         case MainMenuOption.StartTesting:
-            await StartTestScreen.ShowAsync(settings, () => services.GetRequiredService<ChatSession>());
+            await StartTestScreen.ShowAsync(settings, runningApps, () => services.GetRequiredService<ChatSession>());
             break;
         case MainMenuOption.FindElement:
-            if (ProcessPicker.Pick(settings, "Find an element in an app") is { } app)
+            if (ProcessPicker.Pick(settings, runningApps, "Find an element in an app") is { } app)
             {
                 await FindScreen.ShowAsync(settings, app, services.GetRequiredService<FindElementService>());
             }
