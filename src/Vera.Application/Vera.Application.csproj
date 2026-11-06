@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>$(VeraWindowsTfm)</TargetFramework>
+    <TargetFramework>$(VeraHostTfm)</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,14 +9,21 @@
     <ProjectReference Include="../Vera.Llm/Vera.Llm.csproj" />
     <ProjectReference Include="../Vera.Agent/Vera.Agent.csproj" />
     <ProjectReference Include="../Vera.Replay/Vera.Replay.csproj" />
-    <ProjectReference Include="../Vera.Adapters.Desktop/Vera.Adapters.Desktop.csproj" />
-    <ProjectReference Include="../Vera.Input/Vera.Input.csproj" />
     <ProjectReference Include="../Vera.Adapters.Web/Vera.Adapters.Web.csproj" />
     <ProjectReference Include="../Vera.Adapters.Remote/Vera.Adapters.Remote.csproj" />
     <ProjectReference Include="../Vera.Storage/Vera.Storage.csproj" />
-    <ProjectReference Include="../Vera.Secrets/Vera.Secrets.csproj" />
     <ProjectReference Include="../Vera.Reporting/Vera.Reporting.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(VeraHostTfm)' == '$(VeraWindowsTfm)'">
+    <ProjectReference Include="../Vera.Adapters.Desktop/Vera.Adapters.Desktop.csproj" />
+    <ProjectReference Include="../Vera.Input/Vera.Input.csproj" />
+    <ProjectReference Include="../Vera.Secrets/Vera.Secrets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(VeraHostTfm)' != '$(VeraWindowsTfm)'">
+    <ProjectReference Include="../Vera.Adapters.Mac/Vera.Adapters.Mac.csproj" />
   </ItemGroup>
 
   <ItemGroup>
