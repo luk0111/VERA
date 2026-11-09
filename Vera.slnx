@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Vera.Adapters.Desktop/Vera.Adapters.Desktop.csproj" />
+    <Project Path="src/Vera.Adapters.Mac/Vera.Adapters.Mac.csproj" />
     <Project Path="src/Vera.Adapters.Remote/Vera.Adapters.Remote.csproj" />
     <Project Path="src/Vera.Adapters.Web/Vera.Adapters.Web.csproj" />
     <Project Path="src/Vera.Agent/Vera.Agent.csproj" />
@@ -19,6 +20,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Vera.Adapters.Desktop.Tests/Vera.Adapters.Desktop.Tests.csproj" />
+    <Project Path="tests/Vera.Adapters.Mac.Tests/Vera.Adapters.Mac.Tests.csproj" />
     <Project Path="tests/Vera.Agent.Tests/Vera.Agent.Tests.csproj" />
     <Project Path="tests/Vera.Application.Tests/Vera.Application.Tests.csproj" />
     <Project Path="tests/Vera.Core.Tests/Vera.Core.Tests.csproj" />

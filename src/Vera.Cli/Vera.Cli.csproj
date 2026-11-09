@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>$(VeraWindowsTfm)</TargetFramework>
+    <TargetFramework>$(VeraHostTfm)</TargetFramework>
     <OutputType>Exe</OutputType>
     <!-- Declares Per-Monitor V2 DPI awareness, so element bounds match window screenshots. -->
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationManifest Condition="'$(VeraHostTfm)' == '$(VeraWindowsTfm)'">app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
