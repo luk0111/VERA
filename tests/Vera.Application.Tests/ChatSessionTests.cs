@@ -280,6 +280,110 @@ public sealed class ChatSessionTests
         text.ShouldContain(actions);
     }
 
+    [Fact]
+    public async Task The_local_model_is_asked_again_when_it_refuses_a_question_about_the_app()
+    {
+        var client = new FakeChatClient(ChatSession.OffTopicReply) { LaterReplies = [["Yes, I can see ", "the Podcasts button."]] };
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("find the podcasts button", Ct));
+
+        chunks.ShouldBe(["Yes, I can see ", "the Podcasts button."]);
+        client.Calls.Count.ShouldBe(2);
+        client.Calls[1][^1].Text.ShouldBe(ChatSession.RetryNote);
+        session.History.Select(m => (m.Role, m.Text)).ShouldBe(
+        [
+            (ChatRole.System, ChatSession.SystemPrompt),
+            (ChatRole.User, "find the podcasts button"),
+            (ChatRole.Assistant, "Yes, I can see the Podcasts button."),
+        ]);
+    }
+
+    [Fact]
+    public async Task A_refusal_split_into_chunks_and_quoted_is_still_noticed()
+    {
+        var half = ChatSession.OffTopicReply.Length / 2;
+        var client = new FakeChatClient("\"", ChatSession.OffTopicReply[..half], ChatSession.OffTopicReply[half..], "\"") { LaterReplies = [["Sure."]] };
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("what process are we on", Ct));
+
+        chunks.ShouldBe(["Sure."]);
+    }
+
+    [Fact]
+    public async Task The_local_model_is_asked_again_only_once()
+    {
+        var client = new FakeChatClient(ChatSession.OffTopicReply);
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("find the podcasts button", Ct));
+
+        string.Concat(chunks).ShouldBe(ChatSession.OffTopicReply);
+        client.Calls.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task An_off_topic_message_is_refused_without_asking_again()
+    {
+        var client = new FakeChatClient(ChatSession.OffTopicReply);
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("Give me a recipe for a salad.", Ct));
+
+        string.Concat(chunks).ShouldBe(ChatSession.OffTopicReply);
+        client.Calls.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_hosted_model_is_not_asked_again()
+    {
+        var client = new FakeChatClient(ChatSession.OffTopicReply);
+        var session = new ChatSession(client, Profile with { Provider = "Gemini" }, Substitute.For<IConnectionChecker>());
+
+        await DrainAsync(session.StreamReplyAsync("find the podcasts button", Ct));
+
+        session.RetriesRefusals.ShouldBeFalse();
+        client.Calls.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_normal_answer_to_an_app_question_streams_as_it_comes()
+    {
+        var client = new FakeChatClient("Yes", ", it is ", "there.");
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("is there a save button?", Ct));
+
+        chunks.ShouldBe(["Yes", ", it is ", "there."]);
+        client.Calls.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_reply_that_starts_like_the_refusal_is_shown_once_it_differs()
+    {
+        var client = new FakeChatClient("I can ", "see the Save button.");
+        var session = NewSession(client);
+
+        var chunks = await DrainAsync(session.StreamReplyAsync("find the save button", Ct));
+
+        string.Concat(chunks).ShouldBe("I can see the Save button.");
+        client.Calls.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("find the podcasts button", true)]
+    [InlineData("what process are we on", true)]
+    [InlineData("How do I write a good test for VERA?", true)]
+    [InlineData("Open the File menu and check the dialog", true)]
+    [InlineData("Give me a recipe for a salad.", false)]
+    [InlineData("Write a Python function that reverses a string.", false)]
+    [InlineData("Tell me a joke about tables.", false)]
+    public void Messages_about_the_app_or_testing_are_recognised(string message, bool expected)
+    {
+        ChatSession.LooksInScope(message).ShouldBe(expected);
+    }
+
     private static ChatAppContext App(string name, string title, params UiElement[] elements) =>
         new(1234, name, title, elements);
 

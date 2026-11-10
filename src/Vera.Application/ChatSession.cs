@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -12,7 +13,7 @@ using Vera.Llm;
 namespace Vera.Application;
 
 /// <summary>One chat with the model: keeps the conversation and streams each reply. Provider-agnostic.</summary>
-public sealed class ChatSession
+public sealed partial class ChatSession
 {
     /// <summary>The exact reply to anything that is not about testing the selected app.</summary>
     internal const string OffTopicReply =
@@ -66,6 +67,10 @@ public sealed class ChatSession
     /// <summary>Added to the conversation when the app's window was read again. It holds no text from the app.</summary>
     internal const string WindowChangedNote =
         "The selected app's window was read again, because it changed (for example another page or tab). The <app> block in the first message now describes the new window. Use it instead of anything said before about the window.";
+
+    /// <summary>Sent once, only to the local model, when it refused a message about the app or testing. It holds no text from the app.</summary>
+    internal const string RetryNote =
+        "Read the tester's last message again. It is about the selected app or about testing it, so it is in scope: answer it. Use the out-of-scope sentence only if the message has nothing to do with the app or with testing.";
 
     // Enough for the model to name the main buttons and fields, without filling a small model's context.
     internal const int MaxElements = 40;
@@ -172,33 +177,48 @@ public sealed class ChatSession
     /// Sends <paramref name="userText"/> with the conversation so far and yields the reply chunk by chunk.
     /// The reply joins the history only if the stream ends normally and the reply is not blank; otherwise only the user message stays.
     /// A blank turn in the history makes the model more likely to answer blank again.
+    /// With the local model, a refusal of a message about the app or testing is held back and the model is asked once more (see <see cref="RetriesRefusals"/>).
     /// </summary>
     public async IAsyncEnumerable<string> StreamReplyAsync(string userText, [EnumeratorCancellation] CancellationToken ct)
     {
         _history.Add(new ChatMessage(ChatRole.User, userText));
         LastReplyStats = null;
 
+        var stats = new StreamStats(Stopwatch.StartNew());
         var reply = new StringBuilder();
-        var sinceSend = Stopwatch.StartNew();
-        TimeSpan? firstUpdate = null;
-        long? outputTokens = null;
+
+        // While the reply could still turn out to be the refusal sentence, nothing is shown, so a retried refusal never flashes on screen.
+        var holding = RetriesRefusals && LooksInScope(userText);
+
         // A snapshot, so the client never sees the history change while it streams.
-        await foreach (var update in _chatClient.GetStreamingResponseAsync(_history.ToArray(), cancellationToken: ct).ConfigureAwait(false))
+        await foreach (var text in StreamAsync(_history.ToArray(), stats, ct).ConfigureAwait(false))
         {
-            ct.ThrowIfCancellationRequested();
-            firstUpdate ??= sinceSend.Elapsed;
-            foreach (var usage in update.Contents.OfType<UsageContent>())
+            reply.Append(text);
+            if (!holding)
             {
-                outputTokens = usage.Details.OutputTokenCount ?? outputTokens;
+                yield return text;
             }
-
-            if (string.IsNullOrEmpty(update.Text))
+            else if (!CouldBeRefusal(reply.ToString()))
             {
-                continue;
+                holding = false;
+                yield return reply.ToString();
             }
+        }
 
-            reply.Append(update.Text);
-            yield return update.Text;
+        if (holding && IsRefusal(reply.ToString()))
+        {
+            // The note goes only to this one request; the history keeps the conversation as the tester sees it.
+            reply.Clear();
+            await foreach (var text in StreamAsync([.. _history, new ChatMessage(ChatRole.System, RetryNote)], stats, ct).ConfigureAwait(false))
+            {
+                reply.Append(text);
+                yield return text;
+            }
+        }
+        else if (holding && reply.Length > 0)
+        {
+            // The whole reply was only the start of the refusal sentence, e.g. "I can".
+            yield return reply.ToString();
         }
 
         if (!string.IsNullOrWhiteSpace(reply.ToString()))
@@ -206,8 +226,53 @@ public sealed class ChatSession
             _history.Add(new ChatMessage(ChatRole.Assistant, reply.ToString()));
         }
 
-        var duration = sinceSend.Elapsed;
-        LastReplyStats = new ReplyStats(duration, duration - (firstUpdate ?? duration), outputTokens);
+        var duration = stats.SinceSend.Elapsed;
+        LastReplyStats = new ReplyStats(duration, duration - (stats.FirstUpdate ?? duration), stats.OutputTokens);
+    }
+
+    /// <summary>
+    /// Only for the small local model (qwen3-vl:8b, provider Ollama): it sometimes answers a question about the app with the refusal sentence (#22).
+    /// Bigger hosted models such as Gemini follow the prompt, so their replies are shown as they come.
+    /// </summary>
+    internal bool RetriesRefusals => string.Equals(_profile.Provider, "Ollama", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the message names something in the app or testing itself, so a refusal of it is most likely the model's mistake.</summary>
+    internal static bool LooksInScope(string message) => InScopeWords().IsMatch(message);
+
+    private static bool IsRefusal(string reply) => string.Equals(reply.Trim().Trim('"', '“', '”'), OffTopicReply, StringComparison.Ordinal);
+
+    private static bool CouldBeRefusal(string replySoFar) =>
+        OffTopicReply.StartsWith(replySoFar.Trim().Trim('"', '“', '”'), StringComparison.Ordinal);
+
+    [GeneratedRegex(@"\b(app|button|link|field|menu|page|tab|window|screen|process|element|click|test|vera)s?\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex InScopeWords();
+
+    private async IAsyncEnumerable<string> StreamAsync(ChatMessage[] messages, StreamStats stats, [EnumeratorCancellation] CancellationToken ct)
+    {
+        await foreach (var update in _chatClient.GetStreamingResponseAsync(messages, cancellationToken: ct).ConfigureAwait(false))
+        {
+            ct.ThrowIfCancellationRequested();
+            stats.FirstUpdate ??= stats.SinceSend.Elapsed;
+            foreach (var usage in update.Contents.OfType<UsageContent>())
+            {
+                stats.OutputTokens = usage.Details.OutputTokenCount ?? stats.OutputTokens;
+            }
+
+            if (!string.IsNullOrEmpty(update.Text))
+            {
+                yield return update.Text;
+            }
+        }
+    }
+
+    /// <summary>Timing and token counts of one reply, across a retry too.</summary>
+    private sealed class StreamStats(Stopwatch sinceSend)
+    {
+        public Stopwatch SinceSend { get; } = sinceSend;
+
+        public TimeSpan? FirstUpdate { get; set; }
+
+        public long? OutputTokens { get; set; }
     }
 
     /// <summary>Forgets the conversation; only the system message stays, with what it says about the app.</summary>
