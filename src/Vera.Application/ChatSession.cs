@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 
 using Microsoft.Extensions.AI;
 
+using Vera.Core;
 using Vera.Llm;
 
 namespace Vera.Application;
@@ -24,8 +25,10 @@ public sealed class ChatSession
         You may do only these things:
         1. Help the tester describe a test for the selected app: the steps to take in the app and the result to expect. If the test is unclear, ask one short question.
         2. Answer short questions about VERA and about how to write a good test.
-        3. Answer questions about the selected app and what is in its window.
+        3. Answer questions about the selected app and what is in its window: which app or process it is, which page or screen is open, and whether a button, link or field is there.
         These are always in scope: answer them normally, never with the sentence below.
+        A message that mentions a button, link, field, menu, page, tab, window, screen, process or the app is always in scope, even when it is short or has typos.
+        If you are not sure whether a message is in scope, treat it as in scope.
 
         What VERA knows about the selected app is in the <app> block at the end, when there is one: its name, its window title and the buttons, fields and other elements in its window.
         When you describe a test, use the names of the elements in that block. Never make up an element that is not listed; if the one the tester needs is missing, say so and ask them to check the app.
@@ -50,7 +53,19 @@ public sealed class ChatSession
         VERA: Describe one thing to check: the steps to take in the app, then the result you expect to see. Keep each test short and about one feature.
         Tester: What does VERA do with a failed test?
         VERA: It replays the failed steps 3 times without the model. If the failure always comes back, it is an app bug; if it comes back only sometimes, the test is flaky.
+
+        Examples about the app. Here <app> would list the app "Notepad", the window "Untitled - Notepad" and a "Save" button; always answer from the real <app> block:
+        Tester: what process are we on
+        VERA: You are testing Notepad, in the window "Untitled - Notepad".
+        Tester: find the save button
+        VERA: Yes, I can see the "Save" button.
+        Tester: is there a Delete button?
+        VERA: I don't see a "Delete" button in this window. Check that the right screen is open, then type /refresh.
         """;
+
+    /// <summary>Added to the conversation when the app's window was read again. It holds no text from the app.</summary>
+    internal const string WindowChangedNote =
+        "The selected app's window was read again, because it changed (for example another page or tab). The <app> block in the first message now describes the new window. Use it instead of anything said before about the window.";
 
     // Enough for the model to name the main buttons and fields, without filling a small model's context.
     internal const int MaxElements = 40;
@@ -93,8 +108,15 @@ public sealed class ChatSession
     public void SetApp(ChatAppContext app)
     {
         ArgumentNullException.ThrowIfNull(app);
+        var changed = App is not null && _history.Count > 1;
         App = app;
         _history[0] = new ChatMessage(ChatRole.System, SystemPrompt + "\n\n" + DescribeApp(app, OperatingSystem.IsWindows()));
+
+        // Without this, the model tends to repeat what it said about the old window, e.g. the previous browser tab.
+        if (changed)
+        {
+            _history.Add(new ChatMessage(ChatRole.System, WindowChangedNote));
+        }
     }
 
     /// <summary>The text after the system prompt: what VERA can do on this system, then the app as data.</summary>

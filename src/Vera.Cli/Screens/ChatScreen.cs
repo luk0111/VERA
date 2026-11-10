@@ -15,6 +15,7 @@ internal static class ChatScreen
     private const string ExitCommand = "/back";
     private const string ClearCommand = "/clear";
     private const string RefreshCommand = "/refresh";
+    private const string ElementsCommand = "/elements";
 
     private static readonly Color Neon = new(57, 255, 20);
 
@@ -45,7 +46,7 @@ internal static class ChatScreen
         }
 
         AnsiConsole.MarkupLine(
-            $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
+            $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.WriteLine();
 
         while (true)
@@ -69,12 +70,27 @@ internal static class ChatScreen
                 continue;
             }
 
+            if (Is(message, ElementsCommand))
+            {
+                ShowElements(session.App);
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
             if (Is(message, RefreshCommand))
             {
                 await ReadAppAsync(app, session, appReader);
                 AnsiConsole.Write(SessionPanel(settings, app, session));
                 AnsiConsole.WriteLine();
                 continue;
+            }
+
+            // E.g. the tester switched to another browser tab: read the window again so the model answers about the new page.
+            if (session.App is { } last && appReader.TitleChanged(last))
+            {
+                await ReadAppAsync(app, session, appReader);
+                AnsiConsole.MarkupLine(
+                    $"[grey]The window changed to[/] [teal]{Markup.Escape(session.App?.WindowTitle ?? "")}[/][grey], VERA read it again:[/] {WindowSummary(session.App)}");
             }
 
             await StreamReplyAsync(settings, app, session, message);
@@ -312,6 +328,30 @@ internal static class ChatScreen
         { ElementCount: 0 } => $"[yellow]No buttons or fields found. Type {RefreshCommand} to read it again.[/]",
         _ => $"[teal]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements seen[/]",
     };
+
+    // Every element VERA read, so the tester can check what the model can know about. The model gets at most 40 of them.
+    private static void ShowElements(ChatAppContext? app)
+    {
+        if (app is null || app.ElementCount == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]VERA has read no elements in this window.[/] [grey]Type {RefreshCommand} to read it again.[/]");
+            return;
+        }
+
+        var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey)
+            .AddColumn("[grey]#[/]").AddColumn("[grey]Role[/]").AddColumn("[grey]Name[/]");
+        foreach (var e in app.Elements.Where(e => e.Id > 0))
+        {
+            table.AddRow(
+                e.Id.ToString(CultureInfo.InvariantCulture),
+                Markup.Escape(e.Role),
+                e.Name.Length == 0 ? "[grey](no name, not sent)[/]" : Markup.Escape(e.Name) + (e.IsEnabled ? "" : " [grey](disabled)[/]"));
+        }
+
+        AnsiConsole.Write(table);
+        AnsiConsole.MarkupLine(
+            $"[grey]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements. The model gets the named ones, up to 40.[/]");
+    }
 
     private static void Store(AppSettings settings, ConnectionStatus status)
     {

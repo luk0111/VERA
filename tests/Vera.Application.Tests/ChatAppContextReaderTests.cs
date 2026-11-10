@@ -8,6 +8,12 @@ public sealed class ChatAppContextReaderTests
     private static readonly UiElement Save = new(1, "Button", "Save", new ScreenRect(10, 10, 50, 20), true, "save");
 
     private readonly IAppAdapter _adapter = Substitute.For<IAppAdapter>();
+    private readonly IRunningAppSource _runningApps = Substitute.For<IRunningAppSource>();
+
+    public ChatAppContextReaderTests()
+    {
+        _runningApps.List().Returns([]);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -69,8 +75,74 @@ public sealed class ChatAppContextReaderTests
         await _adapter.Received(1).DisposeAsync();
     }
 
+    [Fact]
+    public async Task The_listed_title_is_kept_with_the_read()
+    {
+        ScreenShows("Gmail - Opera", Window);
+        ListShows(1234, "Gmail");
+
+        var app = await NewReader().ReadAsync(1234, "Opera", "Gmail", Ct);
+
+        app.ListedTitle.ShouldBe("Gmail");
+    }
+
+    [Fact]
+    public async Task Another_listed_title_means_the_window_changed()
+    {
+        ScreenShows("Gmail - Opera", Window);
+        ListShows(1234, "Gmail");
+        var reader = NewReader();
+        var app = await reader.ReadAsync(1234, "Opera", "Gmail", Ct);
+
+        ListShows(1234, "YouTube");
+
+        reader.TitleChanged(app).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_same_listed_title_means_no_change()
+    {
+        ScreenShows("Gmail - Opera", Window);
+        ListShows(1234, "Gmail");
+        var reader = NewReader();
+
+        var app = await reader.ReadAsync(1234, "Opera", "Gmail", Ct);
+
+        reader.TitleChanged(app).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(1234, "")]
+    [InlineData(9999, "YouTube")]
+    public async Task No_title_now_or_a_gone_app_is_not_a_change(int listedProcessId, string listedTitle)
+    {
+        ScreenShows("Gmail - Opera", Window);
+        ListShows(1234, "Gmail");
+        var reader = NewReader();
+        var app = await reader.ReadAsync(1234, "Opera", "Gmail", Ct);
+
+        ListShows(listedProcessId, listedTitle);
+
+        reader.TitleChanged(app).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_title_that_appears_after_a_read_without_one_is_a_change()
+    {
+        ScreenShows("", Window);
+        var reader = NewReader();
+        var app = await reader.ReadAsync(1234, "Opera", "", Ct);
+
+        ListShows(1234, "YouTube");
+
+        reader.TitleChanged(app).ShouldBeTrue();
+    }
+
+    private void ListShows(int processId, string title) =>
+        _runningApps.List().Returns([new RunningAppInfo(processId, "Opera", title)]);
+
     private void ScreenShows(string title, params UiElement[] elements) =>
         _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(new ScreenState(title, elements, ReadOnlyMemory<byte>.Empty, []));
 
-    private ChatAppContextReader NewReader() => new(() => _adapter);
+    private ChatAppContextReader NewReader() => new(() => _adapter, _runningApps);
 }

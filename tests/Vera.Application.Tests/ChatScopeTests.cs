@@ -28,6 +28,8 @@ public sealed class ChatScopeTests
     [InlineData("Open the File menu, click Save As and check that the save dialog opens.")]
     [InlineData("Check that the calculator shows 4 after typing 2+2 and pressing equals.")]
     [InlineData("How do I write a good test for VERA?")]
+    [InlineData("find the podcasts button")]
+    [InlineData("what process are we on")]
     public async Task A_testing_message_gets_a_real_answer(string message)
     {
         var reply = await AskAsync(message);
@@ -53,7 +55,32 @@ public sealed class ChatScopeTests
         test.ShouldContain("Export to PDF");
     }
 
+    [Fact]
+    public async Task After_the_window_changes_the_model_answers_about_the_new_page()
+    {
+        var session = NewSession();
+        session.SetApp(new ChatAppContext(25506, "Opera GX", "Inbox (79) - Gmail - Opera", []));
+        var before = await ReplyAsync(session, "What page am I on?");
+
+        session.SetApp(new ChatAppContext(25506, "Opera GX", "YouTube - Opera", []));
+        var after = await ReplyAsync(session, "What page am I on now?");
+
+        before.ShouldContain("Gmail");
+        after.ShouldContain("YouTube");
+    }
+
     private static async Task<string> AskAsync(string message, ChatAppContext? app = null)
+    {
+        var session = NewSession();
+        if (app is not null)
+        {
+            session.SetApp(app);
+        }
+
+        return await ReplyAsync(session, message);
+    }
+
+    private static ChatSession NewSession()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -67,13 +94,13 @@ public sealed class ChatScopeTests
                 ["Llm:Profiles:local:Think"] = "false",
             })
             .Build();
-        using var provider = new ServiceCollection().AddVeraApplication(config).BuildServiceProvider();
-        var session = provider.GetRequiredService<ChatSession>();
-        if (app is not null)
-        {
-            session.SetApp(app);
-        }
+        // Not disposed: the session uses the provider's chat client for the rest of the test.
+        var provider = new ServiceCollection().AddVeraApplication(config).BuildServiceProvider();
+        return provider.GetRequiredService<ChatSession>();
+    }
 
+    private static async Task<string> ReplyAsync(ChatSession session, string message)
+    {
         var reply = new System.Text.StringBuilder();
         await foreach (var chunk in session.StreamReplyAsync(message, Ct))
         {

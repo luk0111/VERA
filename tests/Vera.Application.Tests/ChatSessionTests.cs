@@ -184,7 +184,7 @@ public sealed class ChatSessionTests
     }
 
     [Fact]
-    public async Task SetApp_again_replaces_the_app_and_keeps_the_conversation()
+    public async Task SetApp_again_replaces_the_app_keeps_the_conversation_and_notes_the_change()
     {
         var session = NewSession(new FakeChatClient("ok"));
         session.SetApp(App("Notepad", "Old title"));
@@ -192,9 +192,21 @@ public sealed class ChatSessionTests
 
         session.SetApp(App("Notepad", "New title"));
 
-        session.History.Select(m => m.Role).ShouldBe([ChatRole.System, ChatRole.User, ChatRole.Assistant]);
+        session.History.Select(m => m.Role).ShouldBe([ChatRole.System, ChatRole.User, ChatRole.Assistant, ChatRole.System]);
         session.History[0].Text.ShouldContain("New title");
         session.History[0].Text.ShouldNotContain("Old title");
+        session.History[3].Text.ShouldBe(ChatSession.WindowChangedNote);
+    }
+
+    [Fact]
+    public void SetApp_again_before_any_message_adds_no_note()
+    {
+        var session = NewSession(new FakeChatClient());
+        session.SetApp(App("Notepad", "Old title"));
+
+        session.SetApp(App("Notepad", "New title"));
+
+        session.History.Count.ShouldBe(1);
     }
 
     [Fact]
