@@ -14,6 +14,18 @@ dotnet run --project tools/Vera.Input.Harness
 
 The fourth command is the set CI runs: it skips tests marked `[Trait("Category", "Integration")]`, which need a real desktop, app or model.
 
+## Local settings
+
+`src/Vera.Cli/appsettings.json` is shared. To change settings only for yourself, such as using another Ollama model, create `src/Vera.Cli/appsettings.Local.json` next to it. Git ignores it, and its values override the shared file. For example, to add a profile and make it your default:
+
+```json
+{ "Llm": { "DefaultProfile": "local-4b", "Profiles": { "local-4b": {
+  "Provider": "Ollama", "DisplayName": "Local 4B", "Endpoint": "http://127.0.0.1:11434",
+  "Model": "qwen3-vl:4b", "ContextSize": 8192, "Think": false } } } }
+```
+
+Rebuild after creating or changing it, because it is copied to the build output. If you delete it, also delete the copy in `bin/`.
+
 ## Branches
 
 - Flow: working branch → `internal` → `beta` → `main` (releases only). Hotfixes: `fix/*` → `main`. CI rejects PRs that break this order.
