@@ -36,7 +36,24 @@ public sealed class ChatScopeTests
         reply.Trim().ShouldNotBeEmpty();
     }
 
-    private static async Task<string> AskAsync(string message)
+    [Fact]
+    public async Task The_model_knows_which_app_is_selected_and_its_buttons()
+    {
+        var app = new Vera.Core.UiElement[]
+        {
+            new(1, "Button", "Export to PDF", new Vera.Core.ScreenRect(0, 0, 10, 10), true, "export"),
+            new(2, "Edit", "Invoice number", new Vera.Core.ScreenRect(0, 20, 10, 10), true, "invoice"),
+        };
+        var context = new ChatAppContext(4321, "Ledgerly", "Ledgerly - Invoices", app);
+
+        var name = await AskAsync("Which app am I testing?", context);
+        var test = await AskAsync("Write a test that exports the invoice.", context);
+
+        name.ShouldContain("Ledgerly");
+        test.ShouldContain("Export to PDF");
+    }
+
+    private static async Task<string> AskAsync(string message, ChatAppContext? app = null)
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -52,6 +69,10 @@ public sealed class ChatScopeTests
             .Build();
         using var provider = new ServiceCollection().AddVeraApplication(config).BuildServiceProvider();
         var session = provider.GetRequiredService<ChatSession>();
+        if (app is not null)
+        {
+            session.SetApp(app);
+        }
 
         var reply = new System.Text.StringBuilder();
         await foreach (var chunk in session.StreamReplyAsync(message, Ct))

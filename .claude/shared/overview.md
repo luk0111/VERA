@@ -22,6 +22,6 @@ Stack: C# on .NET 10, Spectre.Console, SQLite. The model can be local, in-house 
 | `Vera.Adapters.Mac` | The macOS version of the desktop adapter: lists running apps, reads a window's elements with the Accessibility API, and takes screenshots with `screencapture`. It shares numbering with `Vera.Adapters.Desktop`. See [workflow.md](workflow.md#macos) |
 | `Vera.Llm` | Connects to the model (Ollama for now) through `Microsoft.Extensions.AI`. Draws element numbers on the screenshot (Set-of-Marks) and asks the model for one action |
 | `Vera.Reporting` | Draws a red box around an element on a screenshot |
-| `Vera.Application` | Connects the layers for the UI: chat about the selected app, find an element in a running app |
+| `Vera.Application` | Connects the layers for the UI: chat about the selected app, find an element in a running app. When a chat starts, it reads the app's window once and tells the model the app's name, window title, system and up to 40 named elements, as JSON in an `<app>` block. `/refresh` reads the window again |
 | `Vera.Cli` | The console app: start testing (chat), find an element, settings |
 | Everything else | Empty project so far: `Vera.Agent`, `Vera.Replay`, `Vera.Adapters.Web`, `Vera.Adapters.Remote`, `Vera.RemoteAgent`, `Vera.Protos`, `Vera.Storage`, `Vera.Secrets` |

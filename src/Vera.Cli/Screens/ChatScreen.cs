@@ -14,13 +14,14 @@ internal static class ChatScreen
 {
     private const string ExitCommand = "/back";
     private const string ClearCommand = "/clear";
+    private const string RefreshCommand = "/refresh";
 
     private static readonly Color Neon = new(57, 255, 20);
 
     // Redrawing on every token flickers
     private static readonly TimeSpan RedrawInterval = TimeSpan.FromMilliseconds(50);
 
-    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session)
+    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader)
     {
         if (!settings.IsLocalModel)
         {
@@ -33,6 +34,7 @@ internal static class ChatScreen
         var status = await AnsiConsole.Status()
             .StartAsync("Checking Ollama…", _ => session.CheckConnectionAsync(CancellationToken.None));
         Store(settings, status);
+        await ReadAppAsync(app, session, appReader);
 
         Ui.ShowHeader(settings);
         Ui.Title("Agent chat");
@@ -42,7 +44,8 @@ internal static class ChatScreen
             AnsiConsole.MarkupLine("[grey]Start Ollama, then send a message to retry.[/]");
         }
 
-        AnsiConsole.MarkupLine($"[grey]Describe what to test and press Enter. Type [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
+        AnsiConsole.MarkupLine(
+            $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.WriteLine();
 
         while (true)
@@ -62,6 +65,14 @@ internal static class ChatScreen
             {
                 session.Reset();
                 AnsiConsole.MarkupLine("[grey]Conversation cleared. The model has forgotten everything said so far.[/]");
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
+            if (Is(message, RefreshCommand))
+            {
+                await ReadAppAsync(app, session, appReader);
+                AnsiConsole.Write(SessionPanel(settings, app, session));
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -274,12 +285,30 @@ internal static class ChatScreen
                     .AddColumn()
                     .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(app.ToString())}[/]")
                     .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(session.ModelName)}[/]")
-                    .AddRow("[grey]Connected to[/]", connectedTo))
+                    .AddRow("[grey]Connected to[/]", connectedTo)
+                    .AddRow("[grey]Window[/]", WindowSummary(session.App)))
             .Header("[bold]Session[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Teal)
             .Expand();
     }
+
+    // Reads the app's window and tells the model about it. A window that can't be read is shown in the Session panel, not as an error.
+    private static async Task ReadAppAsync(RunningApp app, ChatSession session, ChatAppContextReader appReader)
+    {
+        var context = await AnsiConsole.Status()
+            .StartAsync("Reading the app's window…", _ => appReader.ReadAsync(app.Id, app.Name, app.WindowTitle, CancellationToken.None));
+        session.SetApp(context);
+    }
+
+    // e.g. "23 elements seen", or why the window couldn't be read.
+    private static string WindowSummary(ChatAppContext? app) => app switch
+    {
+        null => "[grey]not read[/]",
+        { Problem: { } problem } => $"[yellow]{Markup.Escape(problem)}[/]",
+        { ElementCount: 0 } => $"[yellow]No buttons or fields found. Type {RefreshCommand} to read it again.[/]",
+        _ => $"[teal]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements seen[/]",
+    };
 
     private static void Store(AppSettings settings, ConnectionStatus status)
     {

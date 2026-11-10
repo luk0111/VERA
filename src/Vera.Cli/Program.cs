@@ -52,7 +52,8 @@ while (true)
     switch (choice)
     {
         case MainMenuOption.StartTesting:
-            await StartTestScreen.ShowAsync(settings, runningApps, () => services.GetRequiredService<ChatSession>());
+            await StartTestScreen.ShowAsync(
+                settings, runningApps, () => services.GetRequiredService<ChatSession>(), services.GetRequiredService<ChatAppContextReader>());
             break;
         case MainMenuOption.FindElement:
             if (ProcessPicker.Pick(settings, runningApps, "Find an element in an app") is { } app)
