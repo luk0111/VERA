@@ -12,7 +12,9 @@ dotnet test --solution Vera.slnx -- --filter-not-trait "Category=Integration"
 dotnet run --project tools/Vera.Input.Harness
 ```
 
-The fourth command is the set CI runs: it skips tests marked `[Trait("Category", "Integration")]`, which need a real desktop, app or model.
+The fourth command is the set CI runs: it skips tests marked `[Trait("Category", "Integration")]`, which need a real desktop, app or model. Locally it ends with "Zero tests ran" (exit code 8) because `Vera.Agent.Tests` is still empty. CI ignores that exit code.
+
+Close any running VERA before building. Otherwise the build fails with "The file is locked by: Vera.Cli".
 
 ## Local settings
 
@@ -34,6 +36,7 @@ Rebuild after creating or changing it, because it is copied to the build output.
 ## Code rules
 
 - Warnings are errors, and nullable is on.
+- Add a setting only together with the feature that uses it.
 - Package versions go in `Directory.Packages.props`, never in a `.csproj`.
 - Windows-only projects target `$(VeraWindowsTfm)`, all others `$(VeraTfm)`. `Vera.Cli`, `Vera.Application` and `Vera.Application.Tests` target `$(VeraHostTfm)`, which is the Windows target on Windows and `$(VeraTfm)` elsewhere. Their Windows-only code goes inside `#if WINDOWS`.
 
@@ -44,4 +47,3 @@ Rebuild after creating or changing it, because it is copied to the build output.
 - Build and run with the same commands. Install the .NET 10 SDK and Ollama first.
 - Reading a window needs two permissions, in System Settings > Privacy & Security: Accessibility, and Screen & System Audio Recording. Turn them on for the app VERA is started from (Terminal or Rider), then restart that app.
 - `dotnet test` reports errors for `Vera.Input.Tests` and `Vera.Adapters.Desktop.Tests`, which can only start on Windows. The tests in the other projects still run.
-- Add a setting only together with the feature that uses it.
