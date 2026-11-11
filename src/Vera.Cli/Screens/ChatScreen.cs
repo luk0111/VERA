@@ -14,13 +14,15 @@ internal static class ChatScreen
 {
     private const string ExitCommand = "/back";
     private const string ClearCommand = "/clear";
+    private const string RefreshCommand = "/refresh";
+    private const string ElementsCommand = "/elements";
 
     private static readonly Color Neon = new(57, 255, 20);
 
     // Redrawing on every token flickers
     private static readonly TimeSpan RedrawInterval = TimeSpan.FromMilliseconds(50);
 
-    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session)
+    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader)
     {
         if (settings.SelectedModel is null || (settings.SelectedModel.NeedsApiKey && !settings.IsApiKeyConnected))
         {
@@ -33,6 +35,7 @@ internal static class ChatScreen
         var status = await AnsiConsole.Status()
             .StartAsync($"Checking {Markup.Escape(session.ProviderLabel)}…", _ => session.CheckConnectionAsync(CancellationToken.None));
         Store(settings, status);
+        await ReadAppAsync(app, session, appReader);
 
         Ui.ShowHeader(settings);
         Ui.Title("Agent chat");
@@ -48,7 +51,8 @@ internal static class ChatScreen
             AnsiConsole.MarkupLine($"[grey]{Markup.Escape(hint)}[/]");
         }
 
-        AnsiConsole.MarkupLine($"[grey]Describe what to test and press Enter. Type [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
+        AnsiConsole.MarkupLine(
+            $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.WriteLine();
 
         while (true)
@@ -70,6 +74,29 @@ internal static class ChatScreen
                 AnsiConsole.MarkupLine("[grey]Conversation cleared. The model has forgotten everything said so far.[/]");
                 AnsiConsole.WriteLine();
                 continue;
+            }
+
+            if (Is(message, ElementsCommand))
+            {
+                ShowElements(session.App);
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
+            if (Is(message, RefreshCommand))
+            {
+                await ReadAppAsync(app, session, appReader);
+                AnsiConsole.Write(SessionPanel(settings, app, session));
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
+            // E.g. the tester switched to another browser tab: read the window again so the model answers about the new page.
+            if (session.App is { } last && appReader.TitleChanged(last))
+            {
+                await ReadAppAsync(app, session, appReader);
+                AnsiConsole.MarkupLine(
+                    $"[grey]The window changed to[/] [teal]{Markup.Escape(session.App?.WindowTitle ?? "")}[/][grey], VERA read it again:[/] {WindowSummary(session.App)}");
             }
 
             await StreamReplyAsync(settings, app, session, message);
@@ -289,17 +316,62 @@ internal static class ChatScreen
             _ => $"[red]{Markup.Escape(settings.ConnectionDetail)}[/]",
         };
 
+        // The title from the last read, e.g. the browser's new tab after /refresh; the picker's title is from before the chat.
+        var current = session.App is { WindowTitle.Length: > 0 } read ? app with { WindowTitle = read.WindowTitle } : app;
+
         return new Panel(
                 new Grid()
                     .AddColumn(new GridColumn().NoWrap())
                     .AddColumn()
-                    .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(app.ToString())}[/]")
+                    .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(current.ToString())}[/]")
                     .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(session.ModelName)}[/]")
-                    .AddRow("[grey]Connected to[/]", connectedTo))
+                    .AddRow("[grey]Connected to[/]", connectedTo)
+                    .AddRow("[grey]Window[/]", WindowSummary(session.App)))
             .Header("[bold]Session[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Teal)
             .Expand();
+    }
+
+    // Reads the app's window and tells the model about it. A window that can't be read is shown in the Session panel, not as an error.
+    private static async Task ReadAppAsync(RunningApp app, ChatSession session, ChatAppContextReader appReader)
+    {
+        var context = await AnsiConsole.Status()
+            .StartAsync("Reading the app's window…", _ => appReader.ReadAsync(app.Id, app.Name, app.WindowTitle, CancellationToken.None));
+        session.SetApp(context);
+    }
+
+    // e.g. "23 elements seen", or why the window couldn't be read.
+    private static string WindowSummary(ChatAppContext? app) => app switch
+    {
+        null => "[grey]not read[/]",
+        { Problem: { } problem } => $"[yellow]{Markup.Escape(problem)}[/]",
+        { ElementCount: 0 } => $"[yellow]No buttons or fields found. Type {RefreshCommand} to read it again.[/]",
+        _ => $"[teal]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements seen[/]",
+    };
+
+    // Every element VERA read, so the tester can check what the model can know about. The model gets at most 40 of them.
+    private static void ShowElements(ChatAppContext? app)
+    {
+        if (app is null || app.ElementCount == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]VERA has read no elements in this window.[/] [grey]Type {RefreshCommand} to read it again.[/]");
+            return;
+        }
+
+        var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey)
+            .AddColumn("[grey]#[/]").AddColumn("[grey]Role[/]").AddColumn("[grey]Name[/]");
+        foreach (var e in app.Elements.Where(e => e.Id > 0))
+        {
+            table.AddRow(
+                e.Id.ToString(CultureInfo.InvariantCulture),
+                Markup.Escape(e.Role),
+                e.Name.Length == 0 ? "[grey](no name, not sent)[/]" : Markup.Escape(e.Name) + (e.IsEnabled ? "" : " [grey](disabled)[/]"));
+        }
+
+        AnsiConsole.Write(table);
+        AnsiConsole.MarkupLine(
+            $"[grey]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements. The model gets the named ones, up to 40.[/]");
     }
 
     private static void Store(AppSettings settings, ConnectionStatus status)

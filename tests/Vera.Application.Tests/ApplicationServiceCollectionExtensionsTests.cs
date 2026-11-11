@@ -41,6 +41,14 @@ public sealed class ApplicationServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void A_valid_configuration_also_creates_the_chat_app_reader()
+    {
+        using var provider = Build(ValidConfig);
+
+        provider.GetRequiredService<ChatAppContextReader>().ShouldNotBeNull();
+    }
+
+    [Fact]
     public void Adapters_are_new_each_time_and_not_held_by_the_container()
     {
         var provider = Build(ValidConfig);

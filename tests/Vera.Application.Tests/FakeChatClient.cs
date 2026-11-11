@@ -9,6 +9,9 @@ internal sealed class FakeChatClient(params string[] chunks) : IChatClient
 {
     public List<IReadOnlyList<ChatMessage>> Calls { get; } = [];
 
+    /// <summary>The chunks of the second, third… call; a call past the end of this list streams the constructor's chunks again.</summary>
+    public IReadOnlyList<string[]> LaterReplies { get; init; } = [];
+
     /// <summary>When set, the stream throws this after <see cref="FailAfter"/> chunks.</summary>
     public Exception? Failure { get; init; }
 
@@ -24,7 +27,8 @@ internal sealed class FakeChatClient(params string[] chunks) : IChatClient
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         Calls.Add(messages.ToList());
-        for (var i = 0; i < chunks.Length; i++)
+        var reply = Calls.Count > 1 && Calls.Count - 2 < LaterReplies.Count ? LaterReplies[Calls.Count - 2] : chunks;
+        for (var i = 0; i < reply.Length; i++)
         {
             if (Failure is not null && i == FailAfter)
             {
@@ -33,7 +37,7 @@ internal sealed class FakeChatClient(params string[] chunks) : IChatClient
 
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
-            yield return new ChatResponseUpdate(ChatRole.Assistant, chunks[i]);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, reply[i]);
             AfterChunk?.Invoke(i);
         }
 

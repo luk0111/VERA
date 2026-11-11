@@ -68,6 +68,7 @@ public static class ApplicationServiceCollectionExtensions
 #else
         services.AddVeraMacAdapter();
 #endif
+        services.AddTransient(sp => new ChatAppContextReader(sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>()));
         services.AddTransient(sp => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
