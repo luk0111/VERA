@@ -28,14 +28,6 @@ Close any running VERA before building. Otherwise the build fails with "The file
 
 Rebuild after creating or changing it, because it is copied to the build output. If you delete it, also delete the copy in `bin/`.
 
-### Hiding personal data from hosted models
-
-A model whose `Endpoint` isn't on this computer (`localhost`, `127.0.0.1`, `::1`), such as Gemini, gets the app's text only after VERA hides emails, phone and card numbers, codes and what's typed in login fields. Password fields are never read, for any model. Screenshots are still sent as they are (#31). Words with no fixed shape, such as your name or usernames, go in `appsettings.Local.json`:
-
-```json
-{ "Privacy": { "HideWords": [ "Jane", "janed123" ] } }
-```
-
 ## Branches
 
 - Flow: working branch → `internal` → `beta` → `main` (releases only). Hotfixes: `fix/*` → `main`. CI rejects PRs that break this order.
