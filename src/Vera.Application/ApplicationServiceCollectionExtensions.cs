@@ -1,9 +1,11 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 #if WINDOWS
 using Vera.Adapters.Desktop;
 using Vera.Input;
+using Vera.Secrets;
 #else
 using Vera.Adapters.Mac;
 #endif
@@ -15,27 +17,49 @@ namespace Vera.Application;
 public static class ApplicationServiceCollectionExtensions
 {
     /// <summary>
-    /// Reads the default model profile from <c>Llm</c> in config, registers the model through <see cref="LlmServiceCollectionExtensions.AddVeraLlm"/>,
-    /// and registers <see cref="ChatSession"/> as transient, so each chat starts empty.
-    /// Also registers the screen and app adapter for this system (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/>, which saves its screenshots under <c>runs/find</c>.
+    /// Reads every model profile from <c>Llm:Profiles</c> in config and registers each through <see cref="LlmServiceCollectionExtensions.AddVeraLlm"/>,
+    /// keyed by its name; <c>Llm:DefaultProfile</c> is also registered without a key.
+    /// Registers <see cref="ChatSession"/> as transient for the default profile, a <see cref="Func{T, TResult}"/> that creates one for any profile name,
+    /// and the list of <see cref="ConfiguredModel"/>s (default first).
+    /// Also registers the secret store (Windows Credential Manager on Windows, environment variables elsewhere), the screen and app adapter for this system
+    /// (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/> (transient for the default profile, plus a
+    /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>.
     /// </summary>
-    /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or the profile is missing or invalid.</exception>
+    /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or a profile is missing or invalid.</exception>
     public static IServiceCollection AddVeraApplication(this IServiceCollection services, IConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var profile = ReadDefaultProfile(config);
-        try
+        var (profiles, defaultName) = ReadProfiles(config);
+
+#if WINDOWS
+        services.AddVeraSecrets();
+#else
+        services.AddSingleton<ISecretStore, EnvironmentSecretStore>();
+#endif
+
+        foreach (var profile in profiles)
         {
-            services.AddVeraLlm(profile);
-        }
-        catch (NotSupportedException e)
-        {
-            throw new VeraConfigurationException($"Model profile '{profile.Name}': {e.Message}", e);
+            try
+            {
+                services.AddVeraLlm(profile, asDefault: profile.Name == defaultName);
+            }
+            catch (Exception e) when (e is NotSupportedException or ArgumentException)
+            {
+                throw new VeraConfigurationException($"Model profile '{profile.Name}': {e.Message}", e);
+            }
         }
 
-        services.AddSingleton(new LocalModelInfo(profile.DisplayName, profile.Model));
+        var defaultProfile = profiles[0];
+        services.AddSingleton(new LocalModelInfo(defaultProfile.DisplayName, defaultProfile.Model));
+        services.AddSingleton<IReadOnlyList<ConfiguredModel>>(profiles
+            .Select(p => new ConfiguredModel(p.Name, p.Provider, p.DisplayName, p.Model, !string.IsNullOrWhiteSpace(p.ApiKeyName), p.ApiKeyName))
+            .ToList());
         services.AddTransient<ChatSession>();
+        services.AddSingleton<Func<string, ChatSession>>(sp => name => new ChatSession(
+            sp.GetRequiredKeyedService<IChatClient>(name),
+            sp.GetRequiredKeyedService<LlmProfile>(name),
+            sp.GetRequiredKeyedService<IConnectionChecker>(name)));
         services.AddLogging();
 #if WINDOWS
         services.AddVeraInput(config);
@@ -46,10 +70,13 @@ public static class ApplicationServiceCollectionExtensions
 #endif
         services.AddTransient(sp => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
+        services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
         return services;
     }
 
-    private static LlmProfile ReadDefaultProfile(IConfiguration config)
+    // Returns every profile, the default one first, then the rest in config order.
+    private static (List<LlmProfile> Profiles, string DefaultName) ReadProfiles(IConfiguration config)
     {
         var llm = config.GetSection("Llm");
         if (!llm.Exists())
@@ -57,18 +84,31 @@ public static class ApplicationServiceCollectionExtensions
             throw new VeraConfigurationException("The 'Llm' section is missing from appsettings.json.");
         }
 
-        var name = llm["DefaultProfile"];
-        if (string.IsNullOrWhiteSpace(name))
+        var defaultName = llm["DefaultProfile"];
+        if (string.IsNullOrWhiteSpace(defaultName))
         {
             throw new VeraConfigurationException("'Llm:DefaultProfile' is missing from appsettings.json.");
         }
 
-        var section = llm.GetSection($"Profiles:{name}");
-        if (!section.Exists())
+        if (!llm.GetSection($"Profiles:{defaultName}").Exists())
         {
-            throw new VeraConfigurationException($"'Llm:DefaultProfile' is '{name}', but there is no profile 'Llm:Profiles:{name}' in appsettings.json.");
+            throw new VeraConfigurationException($"'Llm:DefaultProfile' is '{defaultName}', but there is no profile 'Llm:Profiles:{defaultName}' in appsettings.json.");
         }
 
+        var profiles = new List<LlmProfile> { ReadProfile(llm.GetSection($"Profiles:{defaultName}"), defaultName) };
+        foreach (var section in llm.GetSection("Profiles").GetChildren())
+        {
+            if (section.Key != defaultName)
+            {
+                profiles.Add(ReadProfile(section, section.Key));
+            }
+        }
+
+        return (profiles, defaultName);
+    }
+
+    private static LlmProfile ReadProfile(IConfigurationSection section, string name)
+    {
         var profile = (section.Get<LlmProfile>() ?? new LlmProfile()) with { Name = name };
         if (string.IsNullOrWhiteSpace(profile.Model))
         {

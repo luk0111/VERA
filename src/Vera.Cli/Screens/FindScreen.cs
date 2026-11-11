@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using Spectre.Console;
 using Vera.Application;
+using Vera.Llm;
 
 namespace Vera.Cli.Screens;
 
@@ -16,14 +17,7 @@ internal static class FindScreen
         Ui.ShowHeader(settings);
         Ui.Title("Find an element");
         AnsiConsole.MarkupLine($"[grey]Process:[/] [teal]{Markup.Escape(app.ToString())}[/]");
-
-        // Only the local model has a backend yet, as in the chat.
-        if (!settings.IsLocalModel)
-        {
-            AnsiConsole.MarkupLine($"[yellow]This model is not connected yet.[/] Choose [teal]{Markup.Escape(AppSettings.LocalModelEntry)}[/] in Settings.");
-            AnsiConsole.Prompt(new TextPrompt<string>("[grey]Press Enter to go back.[/]").AllowEmpty());
-            return;
-        }
+        AnsiConsole.MarkupLine($"[grey]Model:[/] [teal]{Markup.Escape(settings.ModelLabel)}[/]");
 
         AnsiConsole.MarkupLine($"[grey]Say what you are looking for, e.g. [teal]the Log in button[/]. Type [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.WriteLine();
@@ -85,10 +79,14 @@ internal static class FindScreen
     {
         var text = error switch
         {
+            LlmUnauthorizedException => error.Message,
+            LlmDailyQuotaException => $"{error.Message} Switch to a local model in Settings to keep working.",
             // Ollama answers 404 when the model is not installed.
-            HttpRequestException { StatusCode: HttpStatusCode.NotFound } =>
-                $"Model '{settings.LocalModel?.Model}' is not installed. Run: ollama pull {settings.LocalModel?.Model}",
-            HttpRequestException or IOException or OperationCanceledException => "Could not reach Ollama. Start it and try again.",
+            HttpRequestException { StatusCode: HttpStatusCode.NotFound } when settings.IsLocalModel =>
+                $"Model '{settings.SelectedModel?.Model}' is not installed. Run: ollama pull {settings.SelectedModel?.Model}",
+            HttpRequestException or IOException or OperationCanceledException => settings.IsLocalModel
+                ? "Could not reach Ollama. Start it and try again."
+                : $"Could not reach {settings.SelectedModel?.DisplayName}. Check your connection and try again.",
             _ => error.Message,
         };
 
