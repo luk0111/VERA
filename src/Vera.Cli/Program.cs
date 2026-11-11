@@ -28,8 +28,18 @@ catch (Exception e) when (e is VeraConfigurationException or FileNotFoundExcepti
 }
 
 await using var services = provider;
-var settings = new AppSettings { LocalModel = services.GetRequiredService<LocalModelInfo>() };
+var models = services.GetRequiredService<IReadOnlyList<ConfiguredModel>>();
+var savedProfile = await UserSettingsStore.LoadSelectedProfileAsync(CancellationToken.None);
+var settings = new AppSettings
+{
+    ConfiguredModels = models,
+    SelectedModel = models.FirstOrDefault(m => m.ProfileName == savedProfile) ?? models[0],
+};
+var secrets = services.GetRequiredService<ISecretStore>();
+var newChat = services.GetRequiredService<Func<string, ChatSession>>();
+var newFind = services.GetRequiredService<Func<string, FindElementService>>();
 var runningApps = services.GetRequiredService<IRunningAppSource>();
+await SettingsScreen.RefreshApiKeyStateAsync(settings, secrets);
 
 while (true)
 {
@@ -53,17 +63,17 @@ while (true)
     {
         case MainMenuOption.StartTesting:
             await StartTestScreen.ShowAsync(
-                settings, runningApps, () => services.GetRequiredService<ChatSession>(), services.GetRequiredService<ChatAppContextReader>());
+                settings, runningApps, () => newChat(settings.SelectedModel!.ProfileName), services.GetRequiredService<ChatAppContextReader>());
             break;
         case MainMenuOption.FindElement:
             if (ProcessPicker.Pick(settings, runningApps, "Find an element in an app") is { } app)
             {
-                await FindScreen.ShowAsync(settings, app, services.GetRequiredService<FindElementService>());
+                await FindScreen.ShowAsync(settings, app, newFind(settings.SelectedModel!.ProfileName));
             }
 
             break;
         case MainMenuOption.Settings:
-            SettingsScreen.Show(settings);
+            await SettingsScreen.ShowAsync(settings, secrets);
             break;
         case MainMenuOption.Exit:
             AnsiConsole.MarkupLine("[grey]Booted off.[/]");

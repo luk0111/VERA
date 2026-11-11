@@ -19,8 +19,9 @@ internal static class Ui
         }
         else
         {
-            var api = settings.IsApiKeyConnected ? "[green]connected[/]" : "[yellow]not connected[/]";
-            AnsiConsole.MarkupLine($"Model: [teal]{Markup.Escape(settings.Model)}[/]   API: {api}");
+            var api = settings.ConnectionState == ConnectionState.Unauthorized ? "[yellow]key rejected[/]"
+                : settings.IsApiKeyConnected ? "[green]connected[/]" : "[yellow]not connected[/]";
+            AnsiConsole.MarkupLine($"Model: [teal]{ModelName(settings)}[/]   API: {api}");
         }
 
         AnsiConsole.Write(new Rule().RuleStyle(Color.Grey));
@@ -30,9 +31,7 @@ internal static class Ui
     /// <summary>The local model's last known status, e.g. "Connected to: Local · qwen3-vl:8b". Makes no network call.</summary>
     private static string LocalModelStatus(AppSettings settings)
     {
-        var model = settings.LocalModel is { } local
-            ? Markup.Escape($"{local.DisplayName} · {local.Model}")
-            : Markup.Escape(settings.Model);
+        var model = ModelName(settings);
 
         return settings.ConnectionState switch
         {
@@ -42,6 +41,12 @@ internal static class Ui
             _ => $"[grey]{model}  (not checked yet)[/]",
         };
     }
+
+    // e.g. "Local · qwen3-vl:8b", already escaped for markup.
+    private static string ModelName(AppSettings settings) =>
+        settings.SelectedModel is { } selected
+            ? Markup.Escape($"{selected.DisplayName} · {selected.Model}")
+            : Markup.Escape(settings.ModelLabel);
 
     public static void Title(string title)
     {
