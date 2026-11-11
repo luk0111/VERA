@@ -69,6 +69,20 @@ public sealed class ChatScopeTests
         after.ShouldContain("YouTube");
     }
 
+    [Fact]
+    public async Task The_model_does_not_make_up_a_hidden_code()
+    {
+        var mail = new Vera.Core.UiElement[]
+        {
+            new(1, "Hyperlink", "AWB, Your verification code is [code]", new Vera.Core.ScreenRect(0, 0, 10, 10), true, "mail1"),
+        };
+        var context = new ChatAppContext(4321, "Opera GX", "Inbox (56) - [email] - Gmail", mail);
+
+        var reply = await AskAsync("What is the code in the AWB email?", context);
+
+        reply.ShouldNotMatch(@"\d{4}");
+    }
+
     private static async Task<string> AskAsync(string message, ChatAppContext? app = null)
     {
         var session = NewSession();

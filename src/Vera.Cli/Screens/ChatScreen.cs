@@ -319,14 +319,24 @@ internal static class ChatScreen
         // The title from the last read, e.g. the browser's new tab after /refresh; the picker's title is from before the chat.
         var current = session.App is { WindowTitle.Length: > 0 } read ? app with { WindowTitle = read.WindowTitle } : app;
 
-        return new Panel(
-                new Grid()
-                    .AddColumn(new GridColumn().NoWrap())
-                    .AddColumn()
-                    .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(current.ToString())}[/]")
-                    .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(session.ModelName)}[/]")
-                    .AddRow("[grey]Connected to[/]", connectedTo)
-                    .AddRow("[grey]Window[/]", WindowSummary(session.App)))
+        var grid = new Grid()
+            .AddColumn(new GridColumn().NoWrap())
+            .AddColumn()
+            .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(current.ToString())}[/]")
+            .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(session.ModelName)}[/]")
+            .AddRow("[grey]Connected to[/]", connectedTo)
+            .AddRow("[grey]Window[/]", WindowSummary(session.App));
+
+        // The model runs elsewhere, e.g. Gemini: say what is hidden from it and what isn't (#30, #31).
+        if (session.HidesPersonalData)
+        {
+            grid.AddRow(
+                "[grey]Privacy[/]",
+                $"[teal]Emails, phone and card numbers, codes, login fields and your hide list are hidden from {Markup.Escape(session.ProviderLabel)}.[/] "
+                + "[yellow]Screenshots are sent as they are.[/]");
+        }
+
+        return new Panel(grid)
             .Header("[bold]Session[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Teal)

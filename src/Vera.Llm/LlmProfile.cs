@@ -28,4 +28,10 @@ public sealed record LlmProfile
     /// Never the key itself. Empty for providers that need no key.
     /// </summary>
     public string ApiKeyName { get; init; } = "";
+
+    /// <summary>
+    /// True when the model runs on this computer (its endpoint is <c>localhost</c>, <c>127.0.0.1</c> or <c>::1</c>), so what VERA sends never leaves it.
+    /// Any other model, e.g. Gemini, gets the app's text only after <see cref="PersonalData"/> has hidden personal data in it.
+    /// </summary>
+    public bool RunsOnThisComputer => Uri.TryCreate(Endpoint, UriKind.Absolute, out var uri) && uri.IsLoopback;
 }

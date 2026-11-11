@@ -384,6 +384,16 @@ public sealed class ChatSessionTests
         ChatSession.LooksInScope(message).ShouldBe(expected);
     }
 
+    [Theory]
+    [InlineData("http://localhost:11434", false)]
+    [InlineData("https://generativelanguage.googleapis.com", true)]
+    public void Personal_data_is_hidden_only_from_models_elsewhere(string endpoint, bool expected)
+    {
+        var session = new ChatSession(new FakeChatClient(), Profile with { Endpoint = endpoint }, Substitute.For<IConnectionChecker>());
+
+        session.HidesPersonalData.ShouldBe(expected);
+    }
+
     private static ChatAppContext App(string name, string title, params UiElement[] elements) =>
         new(1234, name, title, elements);
 
