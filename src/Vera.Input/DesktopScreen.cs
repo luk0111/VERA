@@ -99,8 +99,17 @@ internal sealed partial class DesktopScreen(
         await keyboard.TypeAsync(text, ct);
     }
 
-    public Task KeyAsync(string combo, int repeat = 1, CancellationToken ct = default) =>
-        throw new NotImplementedException("Key combos come in Milestone 6.");
+    public async Task KeyAsync(string combo, int repeat = 1, CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(repeat, 1);
+        ct.ThrowIfCancellationRequested();
+
+        // Parsed first, so a bad combo presses nothing and doesn't need a ready screen.
+        var parsed = KeyCombo.Parse(combo);
+        EnsureReady(CurrentGeometry().CaptureBounds);
+        LogKey(logger, parsed.Text, repeat);
+        await keyboard.PressAsync(parsed, repeat, ct);
+    }
 
     /// <summary>
     /// The geometry clicks are mapped with (the coordinate rule): the latest screenshot's, or before the first one, a
@@ -208,6 +217,9 @@ internal sealed partial class DesktopScreen(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Type {Length} characters (sensitive, not logged)")]
     private static partial void LogTypeSensitive(ILogger logger, int length);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Press {Combo} ×{Repeat}")]
+    private static partial void LogKey(ILogger logger, string combo, int repeat);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Screen not ready ({Reason}): {Detail}")]
     private static partial void LogRejected(ILogger logger, ScreenUnavailableReason reason, string detail);

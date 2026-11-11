@@ -1,6 +1,6 @@
 # Vera.Input
 
-This part of VERA is its eyes and hands. It looks at the screen by taking screenshots and uses the mouse and keyboard the way a person does. Key combinations come next.
+This part of VERA is its eyes and hands. It looks at the screen by taking screenshots and uses the mouse and keyboard the way a person does.
 
 It only works with what's visible on the screen, so it doesn't need to know how the app being tested was built.
 
@@ -13,7 +13,7 @@ It only works with what's visible on the screen, so it doesn't need to know how 
 | Work out where a point in a screenshot is on the real screen | Yes |
 | Move the mouse and click (left, right, middle; single, double, triple) | Yes |
 | Type text in any language, with symbols and emoji (Enter and Tab too) | Yes |
-| Press key combinations, such as Ctrl+S | Not yet |
+| Press keys and combinations, such as Enter, Ctrl+S or Alt+F4 | Yes |
 | Scroll, drag and hover | Not yet |
 
 So far, this has only been tested with the app on the same PC. It hasn't been tested through remote desktop tools such as RDP or AnyDesk.
@@ -26,7 +26,7 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). Open a termin
 dotnet run --project tools/Vera.Input.Harness
 ```
 
-A small menu opens where you can take a screenshot, click a point, type text or check the screen setup. Screenshots are saved in `runs/manual/`, and details of each run go in `logs/`.
+A small menu opens where you can take a screenshot, click a point, type text, press keys or check the screen setup. Screenshots are saved in `runs/manual/`, and details of each run go in `logs/`.
 
 ## If something goes wrong
 
@@ -37,6 +37,7 @@ VERA stops and shows a message explaining the problem. The most common causes ar
 - **A setting is wrong:** the message names the setting. Settings are in `appsettings.json`.
 - **Input rejected:** Windows refused the mouse or keyboard input. Usually the app being tested runs as administrator and VERA doesn't; run both the same way.
 - **Some typed characters are missing:** the app can't keep up. Raise `Delays:BetweenKeys` in `appsettings.json` (default 20 ms; the Windows 11 Notepad needs at least 15).
+- **A key combo is refused:** the message lists the key names VERA knows. `Win+L` (locks the PC) and `Ctrl+Alt+Del` (Windows ignores it from programs) are always refused.
 - **Typed characters show as boxes:** the app's font doesn't have them, but they did arrive. Copy them into another app to check.
 
 ## For developers
