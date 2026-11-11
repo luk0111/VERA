@@ -12,6 +12,8 @@ try
     var config = new ConfigurationBuilder()
         .SetBasePath(AppContext.BaseDirectory)
         .AddJsonFile("appsettings.json", optional: false)
+        // Each tester's own overrides (e.g. another local model). Ignored by git.
+        .AddJsonFile("appsettings.Local.json", optional: true)
         .Build();
     provider = new ServiceCollection().AddVeraApplication(config).BuildServiceProvider();
 }
@@ -20,7 +22,8 @@ catch (Exception e) when (e is VeraConfigurationException or FileNotFoundExcepti
     var message = e switch
     {
         FileNotFoundException => $"appsettings.json was not found in {AppContext.BaseDirectory}",
-        InvalidDataException => $"appsettings.json could not be read: {e.InnerException?.Message ?? e.Message}",
+        // The message names the file (appsettings.json or appsettings.Local.json); the inner one says what is wrong.
+        InvalidDataException => $"{e.Message} {e.InnerException?.Message}".TrimEnd(),
         _ => e.Message,
     };
     AnsiConsole.MarkupLine($"[red]Configuration error:[/] {Markup.Escape(message)}");
