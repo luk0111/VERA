@@ -86,5 +86,7 @@ public sealed class SecretPlaceholderTests
     {
         public Task<string?> GetAsync(string name, CancellationToken ct) =>
             Task.FromResult(secrets.Where(s => s.Name == name).Select(s => (string?)s.Value).FirstOrDefault());
+
+        public Task SetAsync(string name, string value, CancellationToken ct) => throw new NotSupportedException();
     }
 }

@@ -22,7 +22,7 @@ internal static class ChatScreen
 
     public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session)
     {
-        if (!settings.IsLocalModel)
+        if (settings.SelectedModel is null || (settings.SelectedModel.NeedsApiKey && !settings.IsApiKeyConnected))
         {
             ShowNotConnected(settings, app);
             return;
@@ -31,7 +31,7 @@ internal static class ChatScreen
         Ui.ShowHeader(settings);
         Ui.Title("Agent chat");
         var status = await AnsiConsole.Status()
-            .StartAsync("Checking Ollama…", _ => session.CheckConnectionAsync(CancellationToken.None));
+            .StartAsync($"Checking {Markup.Escape(session.ProviderLabel)}…", _ => session.CheckConnectionAsync(CancellationToken.None));
         Store(settings, status);
 
         Ui.ShowHeader(settings);
@@ -39,7 +39,13 @@ internal static class ChatScreen
         AnsiConsole.Write(SessionPanel(settings, app, session));
         if (settings.ConnectionState != ConnectionState.Connected)
         {
-            AnsiConsole.MarkupLine("[grey]Start Ollama, then send a message to retry.[/]");
+            var hint = settings.ConnectionState switch
+            {
+                ConnectionState.Unauthorized => "Connect a valid API key in Settings, then come back.",
+                _ when settings.IsLocalModel => "Start Ollama, then send a message to retry.",
+                _ => "Check your internet connection, then send a message to retry.",
+            };
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(hint)}[/]");
         }
 
         AnsiConsole.MarkupLine($"[grey]Describe what to test and press Enter. Type [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
@@ -71,7 +77,7 @@ internal static class ChatScreen
         }
     }
 
-    // Any model other than the local one has no backend yet: say so and make no call.
+    // No model, or a hosted model without a key: say so and make no call.
     private static void ShowNotConnected(AppSettings settings, RunningApp app)
     {
         Ui.ShowHeader(settings);
@@ -81,13 +87,14 @@ internal static class ChatScreen
                     .AddColumn(new GridColumn().NoWrap())
                     .AddColumn()
                     .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(app.ToString())}[/]")
-                    .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(settings.Model)}[/]"))
+                    .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(settings.ModelLabel)}[/]"))
             .Header("[bold]Session[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Teal)
             .Expand());
 
-        var notConnected = new Panel(new Markup($"[yellow]This model is not connected yet.[/] Choose [teal]{Markup.Escape(AppSettings.LocalModelEntry)}[/] in Settings."))
+        var notConnected = new Panel(new Markup(
+                "[yellow]This model has no API key yet.[/] Add one in Settings → [teal]Connect your API key[/], or choose a local model."))
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Yellow)
             .Padding(1, 0);
@@ -207,16 +214,30 @@ internal static class ChatScreen
         string text;
         switch (error)
         {
+            case LlmUnauthorizedException:
+                text = error.Message;
+                SetConnection(settings, app, session, ConnectionState.Unauthorized, error.Message);
+                break;
+
+            case LlmDailyQuotaException:
+                text = $"{error.Message} Switch to a local model in Settings to keep working.";
+                break;
+
             // Ollama answers 404 when the model is not installed.
-            case HttpRequestException { StatusCode: HttpStatusCode.NotFound }:
+            case HttpRequestException { StatusCode: HttpStatusCode.NotFound } when settings.IsLocalModel:
                 text = $"Model '{session.ModelName}' is not installed. Run: ollama pull {session.ModelName}";
                 SetConnection(settings, app, session, ConnectionState.ModelMissing, text);
                 break;
 
             // Refused or dropped connection, or no answer before the client's timeout (Ctrl+C is handled before this).
-            case HttpRequestException or IOException or OperationCanceledException:
+            case HttpRequestException or IOException or OperationCanceledException when settings.IsLocalModel:
                 text = "Could not reach Ollama. Start it and send your message again.";
                 SetConnection(settings, app, session, ConnectionState.Unreachable, "Ollama is not running. Start it, then try again.");
+                break;
+
+            case HttpRequestException or IOException or OperationCanceledException:
+                text = $"Could not reach {session.ProviderLabel}. Check your internet connection and send your message again.";
+                SetConnection(settings, app, session, ConnectionState.Unreachable, $"Could not reach {session.ProviderLabel}.");
                 break;
 
             default:
@@ -264,7 +285,7 @@ internal static class ChatScreen
         var connectedTo = settings.ConnectionState switch
         {
             ConnectionState.Connected => $"[teal]{Markup.Escape(session.ProviderLabel)}[/] [green]✓[/]",
-            ConnectionState.ModelMissing => $"[yellow]{Markup.Escape(settings.ConnectionDetail)}[/]",
+            ConnectionState.ModelMissing or ConnectionState.Unauthorized => $"[yellow]{Markup.Escape(settings.ConnectionDetail)}[/]",
             _ => $"[red]{Markup.Escape(settings.ConnectionDetail)}[/]",
         };
 
@@ -287,6 +308,7 @@ internal static class ChatScreen
         {
             ConnectionStatusKind.Connected => ConnectionState.Connected,
             ConnectionStatusKind.ModelMissing => ConnectionState.ModelMissing,
+            ConnectionStatusKind.Unauthorized => ConnectionState.Unauthorized,
             _ => ConnectionState.Unreachable,
         };
         settings.ConnectionDetail = status.Message;

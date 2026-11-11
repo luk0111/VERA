@@ -18,7 +18,7 @@ internal static class ProcessPicker
             Ui.ShowHeader(settings);
             Ui.Title(title);
 
-            if (!settings.IsLocalModel && !settings.IsApiKeyConnected)
+            if (settings.SelectedModel is { NeedsApiKey: true } && !settings.IsApiKeyConnected)
             {
                 AnsiConsole.MarkupLine("[yellow]No API key connected yet.[/] [grey]You can add one in Settings.[/]");
                 AnsiConsole.WriteLine();
