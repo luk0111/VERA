@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>$(VeraWindowsTfm)</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- Per-Monitor V2 DPI awareness, so UI Automation bounds are real pixels like the screenshots. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
