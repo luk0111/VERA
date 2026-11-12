@@ -8,9 +8,6 @@ using FlaUI.UIA3;
 using Vera.Core;
 using Vera.Input;
 
-using Windows.Win32;
-using Windows.Win32.Foundation;
-
 namespace Vera.Adapters.Desktop;
 
 /// <summary>
@@ -28,6 +25,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     private static readonly TimeSpan RedrawTime = TimeSpan.FromMilliseconds(200);
 
     private readonly UIA3Automation _automation = new();
+    private readonly ForegroundSwitch _foreground = new(new Win32ForegroundApi());
     private IntPtr _window;
 
     // The latest reading. Its window bounds are also the latest screenshot's area, which clicks are mapped with.
@@ -63,7 +61,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         return Task.CompletedTask;
     }
 
-    /// <exception cref="InvalidOperationException">The window is gone or minimized, or the screen can't be seen.</exception>
+    /// <exception cref="InvalidOperationException">The window is gone, minimized or can't be brought to the front, or the screen can't be seen.</exception>
     public Task<ScreenState> GetScreenStateAsync(CancellationToken ct)
     {
         if (_window == IntPtr.Zero)
@@ -227,9 +225,8 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
             throw new InvalidOperationException(WindowMinimized);
         }
 
-        if (!AppIsInFront())
+        if (await _foreground.BringToFrontAsync(_window, ct).ConfigureAwait(false))
         {
-            window.SetForeground();
             await Task.Delay(RedrawTime, ct).ConfigureAwait(false);
         }
     }
@@ -245,14 +242,6 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         {
             throw new InvalidOperationException(e.Message, e);
         }
-    }
-
-    // Compares processes, not windows: a dialog of the app counts as the app, and bringing the main window forward would take the focus from it.
-    private bool AppIsInFront()
-    {
-        _ = PInvoke.GetWindowThreadProcessId(PInvoke.GetForegroundWindow(), out var foreground);
-        _ = PInvoke.GetWindowThreadProcessId(new HWND(_window), out var app);
-        return foreground == app;
     }
 
     // An element can vanish while the tree is read; skip it rather than fail the whole read.
