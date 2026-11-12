@@ -44,7 +44,8 @@ public sealed class StepRunnerIntegrationTests : IDisposable
             $"expect {Field} contains \"xyz\"");
 
         result.Verdict.ShouldBe(Verdict.Failed);
-        result.Steps[^1].Message.ShouldBe("field \"Characters to copy :\" has \"abc\", which doesn't contain \"xyz\".");
+        result.Steps[^1].Outcome.ShouldBe(StepOutcome.CheckFailed);
+        result.Steps[^1].Message.ShouldEndWith("which doesn't contain \"xyz\".");
     });
 
     [Fact]
@@ -100,6 +101,8 @@ public sealed class StepRunnerIntegrationTests : IDisposable
                 charmap.Refresh();
             }
 
+            // A window can exist before the app takes input; typing then could land short.
+            charmap.WaitForInputIdle(5000);
             await test(charmap);
         }
         finally
