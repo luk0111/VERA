@@ -150,7 +150,9 @@ public sealed class DesktopAdapter(IScreenshotSource screen) : IAppAdapter
                 p.IsEnabled.ValueOrDefault,
                 p.IsOffscreen.ValueOrDefault,
                 p.AutomationId.ValueOrDefault ?? "",
-                element.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault);
+
+                // A password field's text is never read, whatever model gets it (#30).
+                p.IsPassword.ValueOrDefault ? null : element.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault);
         }
         catch (COMException)
         {
