@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 namespace Vera.Llm;
 
 /// <summary>
-/// Retries a request the provider refused because of a per-minute rate limit (<see cref="LlmRateLimitException"/>),
+/// Retries a request the provider refused for a short time, a per-minute rate limit or busy servers (<see cref="LlmRateLimitException"/>),
 /// at most <see cref="MaxRetries"/> times. It waits as long as the provider asked (at most <see cref="MaxDelay"/>), or 5, 15 and 30 seconds.
 /// A daily quota or a rejected key is never retried. A stream is retried only before its first update, so no text is ever repeated.
 /// </summary>

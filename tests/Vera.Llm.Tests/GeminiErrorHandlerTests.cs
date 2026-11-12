@@ -33,6 +33,24 @@ public sealed class GeminiErrorHandlerTests
         error.ShouldBeOfType<LlmRateLimitException>().RetryAfter.ShouldBe(TimeSpan.FromSeconds(9));
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    public void A_busy_server_is_retryable_with_a_busy_message(HttpStatusCode status)
+    {
+        var error = GeminiErrorHandler.Classify(status, """{"error":{"code":503,"status":"UNAVAILABLE"}}""", TimeSpan.FromSeconds(4));
+
+        var busy = error.ShouldBeOfType<LlmRateLimitException>();
+        busy.Message.ShouldBe(GeminiErrorHandler.BusyMessage);
+        busy.RetryAfter.ShouldBe(TimeSpan.FromSeconds(4));
+    }
+
+    [Fact]
+    public void A_404_still_passes_through() =>
+        GeminiErrorHandler.Classify(HttpStatusCode.NotFound, "", null).ShouldBeNull();
+
     [Fact]
     public void A_fractional_retry_delay_is_read()
     {
