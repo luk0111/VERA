@@ -147,12 +147,24 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_model_that_cannot_be_reached_ends_the_run_with_its_error()
+    public async Task A_model_that_cannot_be_reached_stops_the_run_and_keeps_the_steps_done()
     {
-        _llm.DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException<AgentAction>(new HttpRequestException("Connection refused")));
+        var unreachable = new HttpRequestException("Connection refused");
+        _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == "Click the search button"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<AgentAction>(unreachable));
 
-        await Should.ThrowAsync<HttpRequestException>(() => RunAsync("click the search button"));
+        var result = await RunAsync("press enter", "click the search button", "press tab");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.StoppedBy.ShouldBeSameAs(unreachable);
+        result.Steps.Select(s => s.Step.ToString()).ShouldBe(["press enter"]);
+        await _adapter.DidNotReceive().PressKeyAsync("tab", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_run_that_is_not_stopped_has_no_error()
+    {
+        (await RunAsync("press enter")).StoppedBy.ShouldBeNull();
     }
 
     [Fact]

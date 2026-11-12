@@ -1,6 +1,9 @@
 namespace Vera.Llm;
 
-/// <summary>The provider refused a request because of a short-term (per-minute) rate limit. <see cref="RateLimitChatClient"/> waits and retries.</summary>
+/// <summary>
+/// The provider refused a request for a short time: a per-minute rate limit, or its servers are busy (5xx).
+/// <see cref="RateLimitChatClient"/> waits and retries.
+/// </summary>
 internal sealed class LlmRateLimitException : Exception
 {
     public LlmRateLimitException()

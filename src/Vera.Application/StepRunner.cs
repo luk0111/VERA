@@ -21,7 +21,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     /// <param name="approveRisky">Asked before clicking an element with a risky name (<see cref="RiskyWords"/>); false stops the run. Null clicks without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
-    /// <remarks>Errors reaching the model (e.g. Ollama not running) are not a step's result: they end the run and reach the caller.</remarks>
+    /// <remarks>
+    /// An error that isn't about one step, e.g. the model can't be reached, ends the run: the result keeps the steps finished so far,
+    /// the verdict is <see cref="Verdict.Inconclusive"/>, and <see cref="StepRunResult.StoppedBy"/> holds the error.
+    /// </remarks>
     public async Task<StepRunResult> RunAsync(
         int processId,
         string windowTitle,
@@ -34,6 +37,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         var folder = Path.GetFullPath(Path.Combine(outputDirectory, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)));
         var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
         var results = new List<StepResult>();
+        Exception? stoppedBy = null;
 
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
@@ -41,8 +45,20 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             await adapter.StartAsync(target, ct).ConfigureAwait(false);
             for (var i = 0; i < steps.Count; i++)
             {
-                var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, ct);
-                var result = await run.ExecuteAsync().ConfigureAwait(false);
+                StepResult result;
+                try
+                {
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, ct);
+                    result = await run.ExecuteAsync().ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Any error outside one step's own failures ends the run; the caller gets the steps done so far and the error.
+                catch (Exception e) when (!ct.IsCancellationRequested)
+#pragma warning restore CA1031
+                {
+                    stoppedBy = e;
+                    break;
+                }
+
                 results.Add(result);
                 progress?.Report(result);
                 if (result.Outcome != StepOutcome.Done)
@@ -52,13 +68,13 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
         }
 
-        var verdict = results.LastOrDefault()?.Outcome switch
+        var verdict = stoppedBy is not null ? Verdict.Inconclusive : results.LastOrDefault()?.Outcome switch
         {
             StepOutcome.CheckFailed => Verdict.Failed,
             StepOutcome.NotDone => Verdict.Inconclusive,
             _ => Verdict.Passed,
         };
-        return new StepRunResult(verdict, results, folder);
+        return new StepRunResult(verdict, results, folder, stoppedBy);
     }
 
     private Task PauseAsync(CancellationToken ct) => pause > TimeSpan.Zero ? Task.Delay(pause, ct) : Task.CompletedTask;

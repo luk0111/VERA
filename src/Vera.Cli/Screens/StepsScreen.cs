@@ -119,12 +119,19 @@ internal static class StepsScreen
         {
             result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), CancellationToken.None);
         }
-#pragma warning disable CA1031 // A run that can't start or reach the model is shown on screen; the screen itself must stay open.
+#pragma warning disable CA1031 // A run that can't start (e.g. the app closed) is shown on screen; the screen itself must stay open.
         catch (Exception e)
 #pragma warning restore CA1031
         {
             Ui.ShowError(settings, e);
             return;
+        }
+
+        if (result.StoppedBy is { } error)
+        {
+            AnsiConsole.MarkupLine($"[yellow]![/] {result.Steps.Count + 1}. {Markup.Escape(steps[result.Steps.Count].ToString())}");
+            AnsiConsole.MarkupLine($"    [yellow]Stopped here: VERA couldn't finish this step.[/]");
+            Ui.ShowError(settings, error);
         }
 
         AnsiConsole.WriteLine();

@@ -26,4 +26,6 @@ public sealed record StepResult(int Number, StepCommand Step, StepOutcome Outcom
 /// <param name="Verdict"><see cref="Verdict.Passed"/> when every step was done, <see cref="Verdict.Failed"/> when a check didn't hold,
 /// <see cref="Verdict.Inconclusive"/> when VERA couldn't do a step.</param>
 /// <param name="Folder">Where the run's screenshots are saved.</param>
-public sealed record StepRunResult(Verdict Verdict, IReadOnlyList<StepResult> Steps, string Folder);
+/// <param name="StoppedBy">An error that ended the run partway, e.g. the model couldn't be reached; the verdict is then
+/// <see cref="Verdict.Inconclusive"/> and <see cref="Steps"/> holds the steps finished before it. Null when the run wasn't stopped.</param>
+public sealed record StepRunResult(Verdict Verdict, IReadOnlyList<StepResult> Steps, string Folder, Exception? StoppedBy = null);
