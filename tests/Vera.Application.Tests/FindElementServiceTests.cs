@@ -99,6 +99,91 @@ public sealed class FindElementServiceTests : IDisposable
         Directory.Exists(_output).ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task Clicking_reads_the_window_again_and_clicks_the_same_element_by_its_new_id()
+    {
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, LogIn with { Id = 3 }));
+
+        var clicked = await NewService().ClickAsync(1234, "App", LogIn, Ct);
+
+        clicked.Id.ShouldBe(3);
+        await _adapter.Received(1).StartAsync(Arg.Is<AppTarget>(t => t.ProcessId == 1234), Arg.Any<CancellationToken>());
+        await _adapter.Received(1).ClickAsync(3, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task When_the_same_element_appears_twice_the_one_nearest_its_old_place_is_clicked()
+    {
+        var far = LogIn with { Id = 3, Bounds = new ScreenRect(400, 400, 80, 30) };
+        var near = LogIn with { Id = 4, Bounds = new ScreenRect(125, 120, 80, 30) };
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, far, near));
+
+        await NewService().ClickAsync(1234, "App", LogIn, Ct);
+
+        await _adapter.Received(1).ClickAsync(4, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_element_with_another_name_role_or_locator_is_not_the_same()
+    {
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(
+            Window, LogIn with { Name = "Log out" }, LogIn with { Role = "Link" }, LogIn with { Locator = "other" }));
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => NewService().ClickAsync(1234, "App", LogIn, Ct));
+
+        error.Message.ShouldBe("\"Log in\" is no longer on the screen.");
+        await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+    }
+
+    [Fact]
+    public async Task Clicking_does_not_ask_the_model()
+    {
+        await NewService().ClickAsync(1234, "App", LogIn, Ct);
+
+        await _llm.DidNotReceiveWithAnyArgs().DecideNextActionAsync(default!, default!, default!, Ct);
+    }
+
+    [Fact]
+    public async Task A_click_the_app_refuses_passes_its_message_on()
+    {
+        _adapter.ClickAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("The app's window is minimized. Restore it and try again.")));
+
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => NewService().ClickAsync(1234, "App", LogIn, Ct));
+
+        error.Message.ShouldBe("The app's window is minimized. Restore it and try again.");
+    }
+
+    private static readonly UiElement Email = new(8, "Edit", "Email", new ScreenRect(120, 160, 120, 20), true, "email");
+
+    [Fact]
+    public async Task Typing_reads_the_window_again_and_types_into_the_same_field_by_its_new_id()
+    {
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, LogIn, Email with { Id = 5 }));
+
+        var typed = await NewService().TypeAsync(1234, "App", Email, "ana@example.com", Ct);
+
+        typed.Id.ShouldBe(5);
+        await _adapter.Received(1).TypeAsync(5, "ana@example.com", Arg.Any<CancellationToken>());
+        await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+    }
+
+    [Fact]
+    public async Task Typing_into_a_field_that_is_gone_throws_and_types_nothing()
+    {
+        var error = await Should.ThrowAsync<InvalidOperationException>(() => NewService().TypeAsync(1234, "App", Email, "x", Ct));
+
+        error.Message.ShouldBe("\"Email\" is no longer on the screen.");
+        await _adapter.DidNotReceiveWithAnyArgs().TypeAsync(default, default!, Ct);
+    }
+
+    [Fact]
+    public void Only_text_fields_accept_text()
+    {
+        FindElementService.AcceptsText(Email).ShouldBeTrue();
+        FindElementService.AcceptsText(LogIn).ShouldBeFalse();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_output))
