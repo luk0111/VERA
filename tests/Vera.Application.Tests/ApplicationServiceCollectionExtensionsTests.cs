@@ -41,6 +41,15 @@ public sealed class ApplicationServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void A_valid_configuration_also_creates_step_runners()
+    {
+        using var provider = Build(ValidConfig);
+
+        provider.GetRequiredService<StepRunner>().ShouldNotBeNull();
+        provider.GetRequiredService<Func<string, StepRunner>>()("local").ShouldNotBeNull();
+    }
+
+    [Fact]
     public void A_valid_configuration_also_creates_the_chat_app_reader()
     {
         using var provider = Build(ValidConfig);

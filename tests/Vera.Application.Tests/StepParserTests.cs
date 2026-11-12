@@ -3,25 +3,25 @@ namespace Vera.Application.Tests;
 public sealed class StepParserTests
 {
     [Fact]
-    public void Click_reads_the_quoted_name() =>
-        StepParser.Parse("click \"Search\"").ShouldBe(new ClickStep(new ElementQuery("Search")));
+    public void Click_takes_the_rest_of_the_line_as_the_description() =>
+        StepParser.Parse("click the search button").ShouldBe(new ClickStep("the search button"));
 
     [Fact]
-    public void Click_can_name_a_role() =>
-        StepParser.Parse("click button \"Search\"").ShouldBe(new ClickStep(new ElementQuery("Search", "button")));
+    public void A_quoted_description_loses_its_quotes() =>
+        StepParser.Parse("click \"Search\"").ShouldBe(new ClickStep("Search"));
 
     [Fact]
-    public void Type_reads_the_text_and_the_field() =>
-        StepParser.Parse("type \"cats\" into field \"Search\"").ShouldBe(new TypeStep("cats", new ElementQuery("Search", "field")));
+    public void Type_reads_the_quoted_text_and_the_description() =>
+        StepParser.Parse("type \"cats\" into the search box").ShouldBe(new TypeStep("cats", "the search box"));
 
     [Fact]
     public void A_secret_placeholder_is_kept_as_written() =>
-        StepParser.Parse("type \"{{secret:portal-password}}\" into \"Password\"")
-            .ShouldBe(new TypeStep("{{secret:portal-password}}", new ElementQuery("Password")));
+        StepParser.Parse("type \"{{secret:portal-password}}\" into the password field")
+            .ShouldBe(new TypeStep("{{secret:portal-password}}", "the password field"));
 
     [Fact]
     public void Empty_text_is_allowed_to_clear_a_field() =>
-        StepParser.Parse("type \"\" into \"Search\"").ShouldBe(new TypeStep("", new ElementQuery("Search")));
+        StepParser.Parse("type \"\" into the search box").ShouldBe(new TypeStep("", "the search box"));
 
     [Theory]
     [InlineData("press enter", "enter")]
@@ -33,32 +33,27 @@ public sealed class StepParserTests
 
     [Fact]
     public void Expect_alone_checks_the_element_is_shown() =>
-        StepParser.Parse("expect \"Results for cats\"").ShouldBe(new ExpectShownStep(new ElementQuery("Results for cats")));
+        StepParser.Parse("expect the results list").ShouldBe(new ExpectShownStep("the results list"));
 
     [Fact]
     public void Expect_contains_checks_the_elements_text() =>
-        StepParser.Parse("expect field \"Search\" contains \"cats\"")
-            .ShouldBe(new ExpectContainsStep(new ElementQuery("Search", "field"), "cats"));
+        StepParser.Parse("expect the search box contains \"cats\"").ShouldBe(new ExpectContainsStep("the search box", "cats"));
 
     [Fact]
     public void Expect_title_checks_the_window_title() =>
         StepParser.Parse("expect title contains \"cats\"").ShouldBe(new ExpectTitleStep("cats"));
 
     [Fact]
-    public void A_quoted_title_is_an_element_name_not_the_window_title() =>
-        StepParser.Parse("expect \"title\"").ShouldBe(new ExpectShownStep(new ElementQuery("title")));
+    public void Expect_title_without_contains_is_an_element() =>
+        StepParser.Parse("expect title bar").ShouldBe(new ExpectShownStep("title bar"));
 
     [Fact]
-    public void Keywords_and_roles_ignore_case() =>
-        StepParser.Parse("TYPE \"cats\" INTO Field \"Search\"").ShouldBe(new TypeStep("cats", new ElementQuery("Search", "field")));
+    public void Commands_and_into_ignore_case() =>
+        StepParser.Parse("TYPE \"cats\" INTO the Search box").ShouldBe(new TypeStep("cats", "the Search box"));
 
     [Fact]
     public void Quotes_and_backslashes_can_be_typed_with_a_backslash() =>
-        StepParser.Parse(@"type ""say \""hi\"" C:\\temp"" into ""Note""").ShouldBe(new TypeStep(@"say ""hi"" C:\temp", new ElementQuery("Note")));
-
-    [Fact]
-    public void A_name_is_trimmed() =>
-        StepParser.Parse("click \"  Search \"").ShouldBe(new ClickStep(new ElementQuery("Search")));
+        StepParser.Parse(@"type ""say \""hi\"" C:\\temp"" into the note").ShouldBe(new TypeStep(@"say ""hi"" C:\temp", "the note"));
 
     [Theory]
     [InlineData("")]
@@ -69,57 +64,28 @@ public sealed class StepParserTests
         StepParser.Parse(line).ShouldBeNull();
 
     [Theory]
-    [InlineData("click button \"Search\"")]
-    [InlineData("type \"say \\\"hi\\\"\" into field \"Note\"")]
+    [InlineData("click the search button")]
+    [InlineData("type \"say \\\"hi\\\"\" into the note")]
     [InlineData("press ctrl+s")]
-    [InlineData("expect \"Results\"")]
-    [InlineData("expect link \"Next\" contains \"2\"")]
+    [InlineData("expect the results list")]
+    [InlineData("expect the next link contains \"2\"")]
     [InlineData("expect title contains \"cats\"")]
     public void A_step_is_shown_back_as_it_can_be_written(string line) =>
         StepParser.Parse(StepParser.Parse(line)!.ToString()).ShouldBe(StepParser.Parse(line));
 
-    [Fact]
-    public void Each_role_word_stands_for_its_roles()
-    {
-        new ElementQuery("x", "button").Roles.ShouldBe(["Button", "SplitButton"]);
-        new ElementQuery("x", "field").Roles.ShouldBe(["Edit"]);
-        new ElementQuery("x").Roles.ShouldBeEmpty();
-    }
-
     [Theory]
-    [InlineData("open \"Search\"", "Unknown command \"open\". A step starts with click, type, press or expect.")]
+    [InlineData("open the search box", "Unknown command \"open\". A step starts with click, type, press or expect.")]
     [InlineData("\"Search\"", "A step starts with click, type, press or expect.")]
-    [InlineData("click", "Put the name in quotes, e.g. click \"Search\".")]
-    [InlineData("click button", "Put the name in quotes, e.g. click \"Search\".")]
-    [InlineData("click \"\"", "The name in quotes can't be empty.")]
-    [InlineData("click \"Search", "A quote is not closed. Names and text go between two \" marks.")]
-    [InlineData("click \"Search\" now", "Unexpected \"now\" at the end of the step.")]
-    [InlineData("type cats into \"Search\"", "Put the text in quotes, e.g. type \"cats\" into \"Search\".")]
-    [InlineData("type \"cats\" \"Search\"", "Say where to type with \"into\", e.g. type \"cats\" into \"Search\".")]
-    [InlineData("type \"cats\" into", "Put the name in quotes, e.g. type \"cats\" into \"Search\".")]
+    [InlineData("click", "Say what to click, e.g. click the search button.")]
+    [InlineData("click \"\"", "Say what to click, e.g. click the search button.")]
+    [InlineData("type cats into the search box", "Put the text in quotes, e.g. type \"cats\" into the search box.")]
+    [InlineData("type \"cats", "A quote is not closed. Text goes between two \" marks.")]
+    [InlineData("type \"cats\" the search box", "Say where to type with \"into\", e.g. type \"cats\" into the search box.")]
+    [InlineData("type \"cats\" into", "Say what to type into, e.g. type \"cats\" into the search box.")]
     [InlineData("press", "Say which keys to press, e.g. press enter or press ctrl+s.")]
-    [InlineData("expect", "Put the name in quotes, e.g. expect \"Results\".")]
-    [InlineData("expect \"Search\" has \"cats\"", "Expected \"contains\", e.g. expect field \"Search\" contains \"cats\".")]
-    [InlineData("expect \"Search\" contains cats", "Put the text in quotes, e.g. expect field \"Search\" contains \"cats\".")]
-    [InlineData("expect title", "Say what the title should contain, e.g. expect title contains \"cats\".")]
+    [InlineData("expect", "Say what should be on the screen, e.g. expect the results list.")]
+    [InlineData("expect the search box contains cats", "Put the text in quotes, e.g. expect the search box contains \"cats\".")]
+    [InlineData("expect contains \"cats\"", "Say what should contain the text, e.g. expect the search box contains \"cats\".")]
     public void A_wrong_line_says_what_is_wrong(string line, string message) =>
         Should.Throw<FormatException>(() => StepParser.Parse(line)).Message.ShouldBe(message);
-
-    [Fact]
-    public void An_unknown_role_lists_the_roles()
-    {
-        var error = Should.Throw<FormatException>(() => StepParser.Parse("click buton \"Search\""));
-
-        error.Message.ShouldBe(
-            "Unknown role \"buton\". Use one of: button, field, link, checkbox, radio, combo, menu, tab, item, slider. Or put the name in quotes, e.g. click \"Search\".");
-    }
-
-    [Fact]
-    public void A_name_without_quotes_is_explained_too()
-    {
-        var error = Should.Throw<FormatException>(() => StepParser.Parse("click Search"));
-
-        error.Message.ShouldStartWith("Unknown role \"Search\".");
-        error.Message.ShouldEndWith("Or put the name in quotes, e.g. click \"Search\".");
-    }
 }

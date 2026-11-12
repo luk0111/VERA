@@ -1,16 +1,18 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Vera.Application;
 
 /// <summary>
-/// Reads one line of a chain into a <see cref="StepCommand"/>. Keywords and role words ignore case; names and text go in double quotes,
-/// with <c>\"</c> for a quote and <c>\\</c> for a backslash inside. Commands:
-/// <c>click [role] "name"</c>, <c>type "text" into [role] "name"</c>, <c>press keys</c>,
-/// <c>expect [role] "name"</c>, <c>expect [role] "name" contains "text"</c>, <c>expect title contains "text"</c>.
+/// Reads one line of a chain into a <see cref="StepCommand"/>. The first word is the command (any case); elements are described in plain words,
+/// and text to type or check goes in double quotes, with <c>\"</c> for a quote and <c>\\</c> for a backslash inside. Commands:
+/// <c>click the search button</c>, <c>type "cats" into the search box</c>, <c>press enter</c>,
+/// <c>expect the results list</c>, <c>expect the search box contains "cats"</c>, <c>expect title contains "cats"</c>.
 /// </summary>
-public static class StepParser
+public static partial class StepParser
 {
-    private static readonly string RoleList = string.Join(", ", StepRoles.Words.Keys);
+    private const string TypeExample = "type \"cats\" into the search box";
+    private const string ContainsExample = "expect the search box contains \"cats\"";
 
     /// <summary>The step on the line, or null for a blank line or a comment (starting with <c>#</c>).</summary>
     /// <exception cref="FormatException">The line is not a step. The message says what's wrong, with an example.</exception>
@@ -23,164 +25,111 @@ public static class StepParser
             return null;
         }
 
-        var tokens = new Tokens(Tokenize(text));
-        var command = tokens.Next();
-        if (command is not { Quoted: false })
+        var space = text.IndexOfAny([' ', '\t']);
+        var command = space < 0 ? text : text[..space];
+        var rest = space < 0 ? "" : text[space..].Trim();
+        return command.ToLowerInvariant() switch
         {
-            throw new FormatException("A step starts with click, type, press or expect.");
-        }
-
-        StepCommand step = command.Value.ToLowerInvariant() switch
-        {
-            "click" => new ClickStep(ReadElement(tokens, "click \"Search\"")),
-            "type" => ReadType(tokens),
-            "press" => ReadPress(text, command),
-            "expect" => ReadExpect(tokens),
-            _ => throw new FormatException($"Unknown command \"{command.Value}\". A step starts with click, type, press or expect."),
+            "click" => new ClickStep(Describe(rest) ?? throw new FormatException("Say what to click, e.g. click the search button.")),
+            "type" => ReadType(rest),
+            "press" => ReadPress(rest),
+            "expect" => ReadExpect(rest),
+            _ when command.StartsWith('"') => throw new FormatException("A step starts with click, type, press or expect."),
+            _ => throw new FormatException($"Unknown command \"{command}\". A step starts with click, type, press or expect."),
         };
-
-        if (step is not PressStep && tokens.Next() is { } extra)
-        {
-            throw new FormatException($"Unexpected \"{extra.Value}\" at the end of the step.");
-        }
-
-        return step;
     }
 
-    private static TypeStep ReadType(Tokens tokens)
+    private static TypeStep ReadType(string rest)
     {
-        const string Example = "type \"cats\" into \"Search\"";
-        var value = tokens.Next() is { Quoted: true } quoted
-            ? quoted.Value
-            : throw new FormatException($"Put the text in quotes, e.g. {Example}.");
-        if (tokens.Next() is not { Quoted: false } into || !into.Value.Equals("into", StringComparison.OrdinalIgnoreCase))
+        if (!rest.StartsWith('"'))
         {
-            throw new FormatException($"Say where to type with \"into\", e.g. {Example}.");
+            throw new FormatException($"Put the text in quotes, e.g. {TypeExample}.");
         }
 
-        return new TypeStep(value, ReadElement(tokens, Example));
+        var (value, end) = ReadQuoted(rest, 0);
+        var after = rest[end..].Trim();
+        var into = IntoWord().Match(after);
+        if (!into.Success)
+        {
+            throw new FormatException($"Say where to type with \"into\", e.g. {TypeExample}.");
+        }
+
+        return new TypeStep(value, Describe(after[into.Length..]) ?? throw new FormatException($"Say what to type into, e.g. {TypeExample}."));
     }
 
     // The keys are the rest of the line as written, e.g. "ctrl+s"; the input layer checks them when the step runs.
-    private static PressStep ReadPress(string line, Token command)
+    private static PressStep ReadPress(string rest)
     {
-        var keys = line[(command.End)..].Trim().Trim('"').Trim();
+        var keys = rest.Trim('"').Trim();
         return keys.Length == 0
             ? throw new FormatException("Say which keys to press, e.g. press enter or press ctrl+s.")
             : new PressStep(keys);
     }
 
-    private static StepCommand ReadExpect(Tokens tokens)
+    private static StepCommand ReadExpect(string rest)
     {
-        if (tokens.Peek() is { Quoted: false } word && word.Value.Equals("title", StringComparison.OrdinalIgnoreCase))
+        var contains = ContainsAtEnd().Match(rest);
+        if (contains.Success)
         {
-            tokens.Next();
-            return new ExpectTitleStep(ReadContains(tokens, "expect title contains \"cats\"")
-                ?? throw new FormatException("Say what the title should contain, e.g. expect title contains \"cats\"."));
+            var target = contains.Groups["target"].Value.Trim();
+            var (text, _) = ReadQuoted(contains.Groups["text"].Value, 0);
+            return target.Equals("title", StringComparison.OrdinalIgnoreCase)
+                ? new ExpectTitleStep(text)
+                : new ExpectContainsStep(Describe(target) ?? throw new FormatException($"Say what should contain the text, e.g. {ContainsExample}."), text);
         }
 
-        var element = ReadElement(tokens, "expect \"Results\"");
-        return ReadContains(tokens, "expect field \"Search\" contains \"cats\"") is { } contained
-            ? new ExpectContainsStep(element, contained)
-            : new ExpectShownStep(element);
+        // "contains" with text that isn't quoted, or nothing after it.
+        if (ContainsWord().IsMatch(rest))
+        {
+            throw new FormatException($"Put the text in quotes, e.g. {ContainsExample}.");
+        }
+
+        return new ExpectShownStep(Describe(rest) ?? throw new FormatException("Say what should be on the screen, e.g. expect the results list."));
     }
 
-    // "contains" followed by quoted text, or null when the step ends here.
-    private static string? ReadContains(Tokens tokens, string example)
+    // The element description, trimmed; a description in quotes loses them. Null when empty.
+    private static string? Describe(string text)
     {
-        if (tokens.Peek() is null)
+        var description = text.Trim();
+        if (description.StartsWith('"'))
         {
-            return null;
-        }
-
-        if (tokens.Next() is not { Quoted: false } contains || !contains.Value.Equals("contains", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new FormatException($"Expected \"contains\", e.g. {example}.");
-        }
-
-        return tokens.Next() is { Quoted: true } quoted
-            ? quoted.Value
-            : throw new FormatException($"Put the text in quotes, e.g. {example}.");
-    }
-
-    // An optional role word, then the quoted name.
-    private static ElementQuery ReadElement(Tokens tokens, string example)
-    {
-        string? role = null;
-        if (tokens.Peek() is { Quoted: false } word)
-        {
-            tokens.Next();
-            role = word.Value.ToLowerInvariant();
-            if (!StepRoles.Words.ContainsKey(role))
+            var (value, end) = ReadQuoted(description, 0);
+            if (end == description.Length)
             {
-                throw new FormatException($"Unknown role \"{word.Value}\". Use one of: {RoleList}. Or put the name in quotes, e.g. {example}.");
+                description = value.Trim();
             }
         }
 
-        var name = tokens.Next() is { Quoted: true } quoted
-            ? quoted.Value.Trim()
-            : throw new FormatException($"Put the name in quotes, e.g. {example}.");
-        return name.Length == 0
-            ? throw new FormatException("The name in quotes can't be empty.")
-            : new ElementQuery(name, role);
+        return description.Length == 0 ? null : description;
     }
 
-    private static List<Token> Tokenize(string text)
+    // The quoted text starting at text[start], and the index just after its closing quote.
+    private static (string Value, int End) ReadQuoted(string text, int start)
     {
-        var tokens = new List<Token>();
-        var i = 0;
-        while (i < text.Length)
+        var value = new StringBuilder();
+        var i = start + 1;
+        for (; i < text.Length && text[i] != '"'; i++)
         {
-            if (char.IsWhiteSpace(text[i]))
-            {
-                i++;
-                continue;
-            }
-
-            if (text[i] == '"')
-            {
-                var value = new StringBuilder();
-                var j = i + 1;
-                for (; j < text.Length && text[j] != '"'; j++)
-                {
-                    if (text[j] == '\\' && j + 1 < text.Length && text[j + 1] is '"' or '\\')
-                    {
-                        j++;
-                    }
-
-                    value.Append(text[j]);
-                }
-
-                if (j >= text.Length)
-                {
-                    throw new FormatException("A quote is not closed. Names and text go between two \" marks.");
-                }
-
-                tokens.Add(new Token(value.ToString(), Quoted: true, End: j + 1));
-                i = j + 1;
-                continue;
-            }
-
-            var start = i;
-            while (i < text.Length && !char.IsWhiteSpace(text[i]) && text[i] != '"')
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is '"' or '\\')
             {
                 i++;
             }
 
-            tokens.Add(new Token(text[start..i], Quoted: false, End: i));
+            value.Append(text[i]);
         }
 
-        return tokens;
+        return i < text.Length
+            ? (value.ToString(), i + 1)
+            : throw new FormatException("A quote is not closed. Text goes between two \" marks.");
     }
 
-    private sealed record Token(string Value, bool Quoted, int End);
+    [GeneratedRegex(@"^into(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex IntoWord();
 
-    private sealed class Tokens(List<Token> items)
-    {
-        private int _next;
+    // "<target> contains "<text>"" with the quoted text at the very end of the line.
+    [GeneratedRegex(@"^(?<target>.*?)\s*\bcontains\s+(?<text>""(?:[^""\\]|\\.)*"")\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    private static partial Regex ContainsAtEnd();
 
-        public Token? Peek() => _next < items.Count ? items[_next] : null;
-
-        public Token? Next() => _next < items.Count ? items[_next++] : null;
-    }
+    [GeneratedRegex(@"\bcontains\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ContainsWord();
 }

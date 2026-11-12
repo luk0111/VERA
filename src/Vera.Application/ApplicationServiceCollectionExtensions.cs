@@ -24,7 +24,8 @@ public static class ApplicationServiceCollectionExtensions
     /// Models that don't run on this computer get the app's text only after personal data is hidden, including the words in <c>Privacy:HideWords</c>.
     /// Also registers the secret store (Windows Credential Manager on Windows, environment variables elsewhere), the screen and app adapter for this system
     /// (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/> (transient for the default profile, plus a
-    /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>.
+    /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>,
+    /// and <see cref="StepRunner"/> (the same way as Find: the model finds each element), which saves its screenshots under <c>runs/steps</c>.
     /// </summary>
     /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or a profile is missing or invalid.</exception>
     public static IServiceCollection AddVeraApplication(this IServiceCollection services, IConfiguration config)
@@ -77,6 +78,12 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
+        services.AddTransient(sp => new StepRunner(
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause));
+        services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause));
         return services;
     }
 
