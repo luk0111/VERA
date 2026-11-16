@@ -78,7 +78,7 @@ internal static class ChatScreen
 
             if (Is(message, ElementsCommand))
             {
-                ShowElements(session.App);
+                ShowElements(session.App, session.ElementLimit);
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -87,6 +87,15 @@ internal static class ChatScreen
             {
                 await ReadAppAsync(app, session, appReader);
                 AnsiConsole.Write(SessionPanel(settings, app, session));
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
+            // A mistyped command such as "/refesh" would go to the model, which may pretend it ran.
+            if (message.StartsWith('/') && !message.Contains(' ', StringComparison.Ordinal))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]{Markup.Escape(message)} isn't a command.[/] [grey]Commands: [teal]{RefreshCommand}[/], [teal]{ElementsCommand}[/], [teal]{ClearCommand}[/], [teal]{ExitCommand}[/].[/]");
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -360,8 +369,8 @@ internal static class ChatScreen
         _ => $"[teal]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements seen[/]",
     };
 
-    // Every element VERA read, so the tester can check what the model can know about. The model gets at most 40 of them.
-    private static void ShowElements(ChatAppContext? app)
+    // Every element VERA read, so the tester can check what the model can know about. The model gets at most `limit` of them.
+    private static void ShowElements(ChatAppContext? app, int limit)
     {
         if (app is null || app.ElementCount == 0)
         {
@@ -381,7 +390,7 @@ internal static class ChatScreen
 
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine(
-            $"[grey]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements. The model gets the named ones, up to 40.[/]");
+            $"[grey]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements. The model gets the named ones, up to {limit.ToString(CultureInfo.InvariantCulture)}.[/]");
     }
 
     private static void Store(AppSettings settings, ConnectionStatus status)

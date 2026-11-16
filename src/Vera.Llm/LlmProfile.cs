@@ -20,6 +20,12 @@ public sealed record LlmProfile
     /// <summary>The context window in tokens. Ignored for <c>Gemini</c>: there the window is fixed by the model (this is not a limit on output tokens).</summary>
     public int ContextSize { get; init; }
 
+    /// <summary>
+    /// How many of a window's elements this model gets in Find an element and the agent, top to bottom (the chat gets half).
+    /// 80 fits the small local model's context window; a big hosted model such as Gemini can take far more (#41).
+    /// </summary>
+    public int MaxElements { get; init; } = 80;
+
     /// <summary>Whether the model may use its reasoning ("thinking") mode.</summary>
     public bool Think { get; init; }
 

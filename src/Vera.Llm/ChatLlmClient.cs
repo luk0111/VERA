@@ -9,7 +9,7 @@ using Vera.Core;
 namespace Vera.Llm;
 
 /// <summary>Asks any <see cref="IChatClient"/> model for the next action on a numbered screen (Set-of-Marks).</summary>
-internal sealed class ChatLlmClient(IChatClient chat) : ILlmClient
+internal sealed class ChatLlmClient(IChatClient chat, int maxElements = 80) : ILlmClient
 {
     internal const string SystemPrompt = """
         You are VERA, a tool that tests desktop and web apps by acting on them like a person.
@@ -29,6 +29,10 @@ internal sealed class ChatLlmClient(IChatClient chat) : ILlmClient
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(screen);
         ArgumentNullException.ThrowIfNull(history);
+
+        // The model's share of the elements, top to bottom; element 0 is the window. Numbers stay as the adapter gave them,
+        // so the caller can still find the chosen element in the full list.
+        screen = screen with { Elements = screen.Elements.Take(maxElements + 1).ToList() };
 
         ChatMessage[] messages =
         [
