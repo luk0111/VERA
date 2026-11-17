@@ -67,6 +67,46 @@ public sealed class ChatLlmClientTests
         await Should.ThrowAsync<UnreadableAnswerException>(() => new ChatLlmClient(chat).DecideNextActionAsync(Task, Screen("OK"), [], Ct));
     }
 
+    [Fact]
+    public async Task The_model_only_gets_its_share_of_the_elements()
+    {
+        var chat = new RecordingChatClient(ClickOne);
+
+        await new ChatLlmClient(chat, maxElements: 3).DecideNextActionAsync(Task, ManyButtons(6), [], Ct);
+
+        var user = chat.Calls[0].Messages[^1].Text;
+        user.ShouldContain("\"name\":\"B3\"");
+        user.ShouldNotContain("\"name\":\"B4\"");
+    }
+
+    [Fact]
+    public async Task A_number_past_the_models_share_is_not_accepted()
+    {
+        var clickFive = """{"action":"click","target":5,"text":null,"reason":"B5"}""";
+        var chat = new RecordingChatClient(clickFive, clickFive);
+
+        await Should.ThrowAsync<UnreadableAnswerException>(() => new ChatLlmClient(chat, maxElements: 3).DecideNextActionAsync(Task, ManyButtons(6), [], Ct));
+    }
+
+    [Fact]
+    public async Task A_bigger_share_lets_the_model_pick_further_down()
+    {
+        var chat = new RecordingChatClient("""{"action":"click","target":5,"text":null,"reason":"B5"}""");
+
+        var action = await new ChatLlmClient(chat, maxElements: 250).DecideNextActionAsync(Task, ManyButtons(6), [], Ct);
+
+        action.TargetId.ShouldBe(5);
+    }
+
+    private static ScreenState ManyButtons(int count) => new(
+        "App",
+        [
+            new UiElement(0, "Window", "App", new ScreenRect(0, 0, 200, 400), true, "window"),
+            .. Enumerable.Range(1, count).Select(i => new UiElement(i, "Button", $"B{i}", new ScreenRect(10, i * 40, 80, 30), true, $"b{i}")),
+        ],
+        SetOfMarksTests.WhitePng(200, 400),
+        []);
+
     private static ScreenState Screen(string buttonName) => new(
         "App",
         [

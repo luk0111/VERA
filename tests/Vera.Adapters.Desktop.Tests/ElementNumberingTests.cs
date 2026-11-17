@@ -46,14 +46,16 @@ public sealed class ElementNumberingTests
     }
 
     [Fact]
-    public void At_most_80_elements_are_kept()
+    public void At_most_MaxElements_are_kept()
     {
-        // Enough for Calculator's scientific mode, whose equals button is past number 40.
-        var candidates = Enumerable.Range(0, 100).Select(i => Raw("Button", $"B{i}", 110 + (i % 10 * 30), 110 + (i / 10 * 25))).ToList();
+        // Each model then gets its own share of these (80 for the local model, more for Gemini, #41).
+        var candidates = Enumerable.Range(0, ElementNumbering.MaxElements + 20)
+            .Select(i => Raw("Button", $"B{i}", 110 + (i % 10 * 30), 110 + (i / 10 * 9)))
+            .ToList();
 
         var elements = ElementNumbering.Number("Calc", Window, candidates);
 
-        elements.Count.ShouldBe(81);
+        elements.Count.ShouldBe(ElementNumbering.MaxElements + 1);
     }
 
     [Fact]

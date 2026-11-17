@@ -238,7 +238,7 @@ public sealed class ChatSessionTests
             App("App", "Title", Element(0, "Window", "Title"), Element(1, "Pane", " "), Element(2, "Button", "OK"), Element(3, "Button", "OK")),
             isWindows: true);
 
-        text.ShouldContain("\"elements\":[{\"role\":\"Button\",\"name\":\"OK\"}]");
+        text.ShouldContain("\"elements\":[{\"role\":\"Button\",\"name\":\"OK\",\"where\":\"middle center\"}]");
     }
 
     [Fact]
@@ -392,6 +392,64 @@ public sealed class ChatSessionTests
         var session = new ChatSession(new FakeChatClient(), Profile with { Endpoint = endpoint }, Substitute.For<IConnectionChecker>());
 
         session.HidesPersonalData.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("http://localhost:11434", 80, 40)]
+    [InlineData("https://generativelanguage.googleapis.com", 250, 250)]
+    public void The_local_model_gets_half_its_share_in_the_chat_and_a_hosted_one_all_of_it(string endpoint, int modelShare, int chatShare)
+    {
+        var session = new ChatSession(new FakeChatClient(), Profile with { Endpoint = endpoint, MaxElements = modelShare }, Substitute.For<IConnectionChecker>());
+
+        session.ElementLimit.ShouldBe(chatShare);
+    }
+
+    [Fact]
+    public void A_model_with_a_bigger_share_is_told_about_more_elements()
+    {
+        var session = new ChatSession(new FakeChatClient(), Profile with { MaxElements = 250 }, Substitute.For<IConnectionChecker>());
+        var many = Enumerable.Range(1, 100).Select(i => Element(i, "Button", $"B{i}")).ToArray();
+
+        session.SetApp(App("Opera", "YouTube", many));
+
+        session.History[0].Text.ShouldContain("\"name\":\"B100\"");
+        session.History[0].Text.ShouldNotContain("\"elementsNotShown\":");
+    }
+
+    [Theory]
+    [InlineData(10, 10, "top left")]
+    [InlineData(450, 280, "middle center")]
+    [InlineData(850, 560, "bottom right")]
+    [InlineData(100, 570, "bottom left")]
+    public void An_element_gets_its_rough_place_in_the_window(int x, int y, string expected)
+    {
+        var window = new ScreenRect(0, 0, 900, 600);
+
+        ChatSession.Where(new ScreenRect(x, y, 20, 20), window).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void The_place_is_measured_from_the_window_not_the_screen()
+    {
+        ChatSession.Where(new ScreenRect(1010, 1010, 20, 20), new ScreenRect(1000, 1000, 900, 600)).ShouldBe("top left");
+    }
+
+    [Fact]
+    public void The_model_is_told_where_each_element_is()
+    {
+        var app = new ChatAppContext(1, "Safari", "Hacker News",
+        [
+            new UiElement(0, "Window", "Hacker News", new ScreenRect(0, 0, 900, 600), true, "window"),
+            new UiElement(1, "Hyperlink", "Apply to YC", new ScreenRect(100, 570, 60, 14), true, "yc"),
+        ]);
+
+        ChatSession.DescribeApp(app, isWindows: false).ShouldContain("{\"role\":\"Hyperlink\",\"name\":\"Apply to YC\",\"where\":\"bottom left\"}");
+    }
+
+    [Fact]
+    public void Without_the_window_no_place_is_given()
+    {
+        ChatSession.Where(new ScreenRect(10, 10, 20, 20), null).ShouldBeNull();
     }
 
     private static ChatAppContext App(string name, string title, params UiElement[] elements) =>

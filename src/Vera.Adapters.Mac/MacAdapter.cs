@@ -27,7 +27,22 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
     /// <summary>How long macOS gets to redraw a window it just brought to the front.</summary>
     private static readonly TimeSpan RedrawTime = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>
+    /// Safari builds a page's elements only once something asks for them, so the first read finds the page empty.
+    /// VERA then waits this long and reads again, at most <see cref="PageRetries"/> times.
+    /// </summary>
+    private static readonly TimeSpan PageBuildTime = TimeSpan.FromMilliseconds(400);
+
+    private const int PageRetries = 2;
+
+    /// <summary>Apps whose page stayed empty after waiting and that never showed one (e.g. Opera, which hides it), so later reads don't wait for nothing.</summary>
+    private static readonly HashSet<int> PagesStayEmpty = [];
+
+    /// <summary>Apps that have shown page content at least once (e.g. Safari). A blank tab there is just blank, not a reason to stop waiting.</summary>
+    private static readonly HashSet<int> PagesShown = [];
+
     private IntPtr _app;
+    private int _processId;
 
     /// <summary>Attaches to <see cref="AppTarget.ProcessId"/>, the app the picker showed.</summary>
     /// <exception cref="NotSupportedException">The target has no process id.</exception>
@@ -55,6 +70,7 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
         }
 
         Release();
+        _processId = processId;
         _app = MacNative.AXUIElementCreateApplication(processId);
         _ = MacNative.AXUIElementSetMessagingTimeout(_app, AppTimeoutSeconds);
         return Task.CompletedTask;
@@ -110,9 +126,24 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
             var bounds = ReadBounds(window) ?? throw new InvalidOperationException(WindowGone);
             var title = ReadString(window, "AXTitle") ?? "";
 
-            var candidates = new List<RawElement>();
-            var visited = 0;
-            ReadChildren(window, 0, candidates, ref visited, ct);
+            var candidates = ReadAll(window, ct);
+            for (var attempt = 0; attempt < PageRetries && HasEmptyWebPage(candidates) && !StaysEmpty(_processId); attempt++)
+            {
+                await Task.Delay(PageBuildTime, ct).ConfigureAwait(false);
+                candidates = ReadAll(window, ct);
+            }
+
+            lock (PagesStayEmpty)
+            {
+                if (!HasEmptyWebPage(candidates) && candidates.Exists(c => c.Role == "WebArea"))
+                {
+                    PagesShown.Add(_processId);
+                }
+                else if (HasEmptyWebPage(candidates) && !PagesShown.Contains(_processId))
+                {
+                    PagesStayEmpty.Add(_processId);
+                }
+            }
 
             var frame = await screen.ScreenshotAreaAsync(bounds.X, bounds.Y, bounds.Width, bounds.Height, ct).ConfigureAwait(false);
             var scaled = candidates.ConvertAll(c => MacRoles.ToImagePixels(c, frame.Scale));
@@ -126,6 +157,44 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
         {
             MacNative.CFRelease(window);
         }
+    }
+
+    private static List<RawElement> ReadAll(IntPtr window, CancellationToken ct)
+    {
+        var candidates = new List<RawElement>();
+        var visited = 0;
+        ReadChildren(window, 0, candidates, ref visited, ct);
+        return candidates;
+    }
+
+    /// <summary>True when the window shows a web page (<c>AXWebArea</c>) with nothing read inside it yet.</summary>
+    internal static bool HasEmptyWebPage(IReadOnlyList<RawElement> candidates)
+    {
+        foreach (var page in candidates.Where(c => c.Role == "WebArea" && c.Bounds.Width > 0 && c.Bounds.Height > 0))
+        {
+            var anythingInside = candidates.Any(c => !ReferenceEquals(c, page) && c.Role != "WebArea" && IsInside(c.Bounds, page.Bounds));
+            if (!anythingInside)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool StaysEmpty(int processId)
+    {
+        lock (PagesStayEmpty)
+        {
+            return PagesStayEmpty.Contains(processId);
+        }
+    }
+
+    private static bool IsInside(ScreenRect r, ScreenRect area)
+    {
+        var x = r.X + (r.Width / 2);
+        var y = r.Y + (r.Height / 2);
+        return x >= area.X && x < area.X + area.Width && y >= area.Y && y < area.Y + area.Height;
     }
 
     // Main window first; an app in the middle of launching may only list its windows.
