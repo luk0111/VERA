@@ -43,6 +43,7 @@ var newChat = services.GetRequiredService<Func<string, ChatSession>>();
 var newFind = services.GetRequiredService<Func<string, FindElementService>>();
 var newSteps = services.GetRequiredService<Func<string, StepRunner>>();
 var runningApps = services.GetRequiredService<IRunningAppSource>();
+var stepFiles = services.GetRequiredService<StepFileStore>();
 await SettingsScreen.RefreshApiKeyStateAsync(settings, secrets);
 
 while (true)
@@ -81,7 +82,7 @@ while (true)
         case MainMenuOption.RunSteps:
             if (ProcessPicker.Pick(settings, runningApps, "Run steps in an app") is { } stepsApp)
             {
-                await StepsScreen.ShowAsync(settings, stepsApp, newSteps(settings.SelectedModel!.ProfileName));
+                await StepsScreen.ShowAsync(settings, stepsApp, newSteps(settings.SelectedModel!.ProfileName), stepFiles);
             }
 
             break;

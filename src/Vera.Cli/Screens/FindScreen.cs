@@ -110,7 +110,13 @@ internal static class FindScreen
                     clicked => $"Clicked \"{clicked.Name}\".");
                 break;
             case FoundAction.Type:
-                var text = AnsiConsole.Prompt(new TextPrompt<string>("What should VERA type? [grey](empty clears the field)[/]").AllowEmpty());
+                var text = AnsiConsole.Prompt(
+                    new TextPrompt<string>($"What should VERA type? [grey](empty clears the field, {ExitCommand} types nothing)[/]").AllowEmpty());
+                if (text.Trim().Equals(ExitCommand, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
                 await ActAsync(
                     "VERA is typing…",
                     "type into it",

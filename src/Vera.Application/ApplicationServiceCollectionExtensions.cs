@@ -84,6 +84,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
             Path.Combine("runs", "steps"), StepRunner.DefaultPause));
+        services.AddSingleton(new StepFileStore("steps"));
         return services;
     }
 

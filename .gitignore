@@ -485,6 +485,8 @@ $RECYCLE.BIN/
 # Run output: screenshots, videos, reports, local databases
 artifacts/
 runs/
+# Steps each tester saved in VERA
+/steps/
 *.db
 *.db-shm
 *.db-wal

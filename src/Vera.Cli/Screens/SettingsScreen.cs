@@ -127,9 +127,15 @@ internal static partial class SettingsScreen
                 .Title("Choose the model:")
                 .HighlightStyle(Ui.Highlight)
                 .AddChoices(choices)
-                .UseConverter(c => c.Model is { } model
-                    ? Markup.Escape(AppSettings.Display(model))
+                .AddChoices(ModelChoice.Back)
+                .UseConverter(c => c == ModelChoice.Back ? "[grey]Back[/]"
+                    : c.Model is { } model ? Markup.Escape(AppSettings.Display(model))
                     : $"{Markup.Escape(c.Upcoming!)} [grey](coming later)[/]"));
+
+        if (choice == ModelChoice.Back)
+        {
+            return;
+        }
 
         if (choice.Model is not { } chosen)
         {
@@ -165,11 +171,13 @@ internal static partial class SettingsScreen
         }
 
         var key = AnsiConsole.Prompt(
-            new TextPrompt<string>($"Paste your [teal]{Markup.Escape(model.DisplayName)}[/] API key:")
+            new TextPrompt<string>($"Paste your [teal]{Markup.Escape(model.DisplayName)}[/] API key [grey](empty to go back)[/]:")
                 .Secret()
-                .Validate(k => string.IsNullOrWhiteSpace(k)
-                    ? ValidationResult.Error("[red]The key can't be empty.[/]")
-                    : ValidationResult.Success()));
+                .AllowEmpty());
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
 
         try
         {
@@ -201,17 +209,28 @@ internal static partial class SettingsScreen
             .Select(m => m.ApiKeyName!)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var name = AnsiConsole.Prompt(
-            new TextPrompt<string>("Secret name [grey](letters, digits, _ . -)[/]:")
+            new TextPrompt<string>("Secret name [grey](letters, digits, _ . -; empty to go back)[/]:")
+                .AllowEmpty()
                 .Validate(n => n.Trim() switch
                 {
+                    { Length: 0 } => ValidationResult.Success(),
                     var trimmed when !SecretName().IsMatch(trimmed) => ValidationResult.Error("[red]Use only letters, digits, _ . and -, e.g. portal-password.[/]"),
                     var trimmed when keyNames.Contains(trimmed) => ValidationResult.Error("[red]That name holds a model's API key. Pick another name.[/]"),
                     _ => ValidationResult.Success(),
                 })).Trim();
+        if (name.Length == 0)
+        {
+            return;
+        }
+
         var value = AnsiConsole.Prompt(
-            new TextPrompt<string>($"Value of [teal]{Markup.Escape(name)}[/]:")
+            new TextPrompt<string>($"Value of [teal]{Markup.Escape(name)}[/] [grey](empty to go back)[/]:")
                 .Secret()
-                .Validate(v => v.Length == 0 ? ValidationResult.Error("[red]The value can't be empty.[/]") : ValidationResult.Success()));
+                .AllowEmpty());
+        if (value.Length == 0)
+        {
+            return;
+        }
 
         try
         {
@@ -233,6 +252,9 @@ internal static partial class SettingsScreen
     [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9_.\-]+$")]
     private static partial System.Text.RegularExpressions.Regex SecretName();
 
-    // Either a configured model or the name of one that comes later.
-    private sealed record ModelChoice(ConfiguredModel? Model, string? Upcoming);
+    // Either a configured model or the name of one that comes later; neither is the Back entry.
+    private sealed record ModelChoice(ConfiguredModel? Model, string? Upcoming)
+    {
+        public static ModelChoice Back { get; } = new(null, null);
+    }
 }
