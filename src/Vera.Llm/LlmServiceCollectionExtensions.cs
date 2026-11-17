@@ -46,7 +46,7 @@ public static class LlmServiceCollectionExtensions
         }
 
         services.AddKeyedSingleton(key, profile);
-        services.AddKeyedSingleton<ILlmClient>(key, (sp, _) => new ChatLlmClient(sp.GetRequiredKeyedService<IChatClient>(key)));
+        services.AddKeyedSingleton<ILlmClient>(key, (sp, _) => new ChatLlmClient(sp.GetRequiredKeyedService<IChatClient>(key), profile.MaxElements));
 
         if (asDefault)
         {

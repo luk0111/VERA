@@ -3,3 +3,10 @@
 // Whether the app is in front
 GetForegroundWindow
 GetWindowThreadProcessId
+
+// Bringing the app to the front
+SetForegroundWindow
+BringWindowToTop
+AttachThreadInput
+GetCurrentThreadId
+SendInput
