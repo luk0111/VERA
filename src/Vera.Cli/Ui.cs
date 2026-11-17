@@ -1,5 +1,6 @@
 using System.Net;
 using Spectre.Console;
+using Vera.Application;
 using Vera.Llm;
 
 namespace Vera.Cli;
@@ -21,13 +22,73 @@ internal static class Ui
         }
         else
         {
-            var api = settings.ConnectionState == ConnectionState.Unauthorized ? "[yellow]key rejected[/]"
-                : settings.IsApiKeyConnected ? "[green]connected[/]" : "[yellow]not connected[/]";
+            var api = !settings.IsApiKeyConnected ? "[yellow]not connected[/]"
+                : settings.ConnectionState switch
+                {
+                    ConnectionState.Unauthorized => "[yellow]key rejected[/]",
+                    ConnectionState.Unreachable => "[red]unreachable[/]",
+                    ConnectionState.ModelMissing => "[yellow]model not available[/]",
+                    _ => "[green]connected[/]",
+                };
             AnsiConsole.MarkupLine($"Model: [teal]{ModelName(settings)}[/]   API: {api}");
+        }
+
+        // The checker's message says what to do, e.g. "Run: ollama pull qwen3-vl:8b".
+        if (settings.ConnectionState is not (ConnectionState.Connected or ConnectionState.Unknown)
+            && !string.IsNullOrWhiteSpace(settings.ConnectionDetail))
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(settings.ConnectionDetail)}[/]");
         }
 
         AnsiConsole.Write(new Rule().RuleStyle(Color.Grey));
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Checks the model before a process is picked, so a broken setup never switches to the app's window.
+    /// Returns false when the tester goes back instead.
+    /// </summary>
+    public static async Task<bool> EnsureModelReadyAsync(AppSettings settings, Func<ChatSession> newSession, string title)
+    {
+        while (true)
+        {
+            ShowHeader(settings);
+            Title(title);
+            await CheckModelAsync(settings, newSession());
+            if (settings.ConnectionState == ConnectionState.Connected)
+            {
+                return true;
+            }
+
+            ShowHeader(settings);
+            Title(title);
+            AnsiConsole.MarkupLine("[yellow]The model is not ready, so VERA won't open the app yet.[/] [grey]Fix it (see above), then check again.[/]");
+            AnsiConsole.WriteLine();
+            var again = AnsiConsole.Prompt(
+                new SelectionPrompt<bool>()
+                    .HighlightStyle(Highlight)
+                    .AddChoices(true, false)
+                    .UseConverter(retry => retry ? "Check again" : "Back"));
+            if (!again)
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>Checks the selected model's setup (Ollama running, model pulled, API key accepted) and stores the result for the header.</summary>
+    public static async Task CheckModelAsync(AppSettings settings, ChatSession session)
+    {
+        var status = await AnsiConsole.Status()
+            .StartAsync($"Checking {Markup.Escape(session.ProviderLabel)}…", _ => session.CheckConnectionAsync(CancellationToken.None));
+        settings.ConnectionState = status.Kind switch
+        {
+            ConnectionStatusKind.Connected => ConnectionState.Connected,
+            ConnectionStatusKind.ModelMissing => ConnectionState.ModelMissing,
+            ConnectionStatusKind.Unauthorized => ConnectionState.Unauthorized,
+            _ => ConnectionState.Unreachable,
+        };
+        settings.ConnectionDetail = status.Message;
     }
 
     /// <summary>The local model's last known status, e.g. "Connected to: Local · qwen3-vl:8b". Makes no network call.</summary>

@@ -24,33 +24,14 @@ internal static class ChatScreen
 
     public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader)
     {
-        if (settings.SelectedModel is null || (settings.SelectedModel.NeedsApiKey && !settings.IsApiKeyConnected))
-        {
-            ShowNotConnected(settings, app);
-            return;
-        }
-
+        // The model was checked before the process list (Ui.EnsureModelReadyAsync), so reading the window is worth it.
         Ui.ShowHeader(settings);
         Ui.Title("Agent chat");
-        var status = await AnsiConsole.Status()
-            .StartAsync($"Checking {Markup.Escape(session.ProviderLabel)}…", _ => session.CheckConnectionAsync(CancellationToken.None));
-        Store(settings, status);
         await ReadAppAsync(app, session, appReader);
 
         Ui.ShowHeader(settings);
         Ui.Title("Agent chat");
         AnsiConsole.Write(SessionPanel(settings, app, session));
-        if (settings.ConnectionState != ConnectionState.Connected)
-        {
-            var hint = settings.ConnectionState switch
-            {
-                ConnectionState.Unauthorized => "Connect a valid API key in Settings, then come back.",
-                _ when settings.IsLocalModel => "Start Ollama, then send a message to retry.",
-                _ => "Check your internet connection, then send a message to retry.",
-            };
-            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(hint)}[/]");
-        }
-
         AnsiConsole.MarkupLine(
             $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.WriteLine();
@@ -110,47 +91,6 @@ internal static class ChatScreen
 
             await StreamReplyAsync(settings, app, session, message);
             AnsiConsole.WriteLine();
-        }
-    }
-
-    // No model, or a hosted model without a key: say so and make no call.
-    private static void ShowNotConnected(AppSettings settings, RunningApp app)
-    {
-        Ui.ShowHeader(settings);
-        Ui.Title("Agent chat");
-        AnsiConsole.Write(new Panel(
-                new Grid()
-                    .AddColumn(new GridColumn().NoWrap())
-                    .AddColumn()
-                    .AddRow("[grey]Process[/]", $"[teal]{Markup.Escape(app.ToString())}[/]")
-                    .AddRow("[grey]Model[/]", $"[teal]{Markup.Escape(settings.ModelLabel)}[/]"))
-            .Header("[bold]Session[/]")
-            .Border(BoxBorder.Rounded)
-            .BorderColor(Color.Teal)
-            .Expand());
-
-        var notConnected = new Panel(new Markup(
-                "[yellow]This model has no API key yet.[/] Add one in Settings → [teal]Connect your API key[/], or choose a local model."))
-            .Border(BoxBorder.Rounded)
-            .BorderColor(Color.Yellow)
-            .Padding(1, 0);
-        AnsiConsole.Write(notConnected);
-        AnsiConsole.MarkupLine($"[grey]Type [teal]{ExitCommand}[/] to return to the main menu.[/]");
-        AnsiConsole.WriteLine();
-
-        while (true)
-        {
-            var message = Ask();
-            if (message is not null && Is(message, ExitCommand))
-            {
-                return;
-            }
-
-            if (message is not null)
-            {
-                AnsiConsole.Write(notConnected);
-                AnsiConsole.WriteLine();
-            }
         }
     }
 
@@ -391,18 +331,6 @@ internal static class ChatScreen
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine(
             $"[grey]{app.ElementCount.ToString(CultureInfo.InvariantCulture)} elements. The model gets the named ones, up to {limit.ToString(CultureInfo.InvariantCulture)}.[/]");
-    }
-
-    private static void Store(AppSettings settings, ConnectionStatus status)
-    {
-        settings.ConnectionState = status.Kind switch
-        {
-            ConnectionStatusKind.Connected => ConnectionState.Connected,
-            ConnectionStatusKind.ModelMissing => ConnectionState.ModelMissing,
-            ConnectionStatusKind.Unauthorized => ConnectionState.Unauthorized,
-            _ => ConnectionState.Unreachable,
-        };
-        settings.ConnectionDetail = status.Message;
     }
 
     // Returns the trimmed message, or null when the tester just pressed Enter.
