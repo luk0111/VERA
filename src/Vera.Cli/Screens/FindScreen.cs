@@ -1,10 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Net;
 using Spectre.Console;
 using Vera.Application;
 using Vera.Core;
-using Vera.Llm;
 
 namespace Vera.Cli.Screens;
 
@@ -55,7 +53,7 @@ internal static class FindScreen
         catch (Exception e)
 #pragma warning restore CA1031
         {
-            ShowError(settings, e);
+            Ui.ShowError(settings, e);
             return;
         }
 
@@ -112,7 +110,13 @@ internal static class FindScreen
                     clicked => $"Clicked \"{clicked.Name}\".");
                 break;
             case FoundAction.Type:
-                var text = AnsiConsole.Prompt(new TextPrompt<string>("What should VERA type? [grey](empty clears the field)[/]").AllowEmpty());
+                var text = AnsiConsole.Prompt(
+                    new TextPrompt<string>($"What should VERA type? [grey](empty clears the field, {ExitCommand} types nothing)[/]").AllowEmpty());
+                if (text.Trim().Equals(ExitCommand, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
                 await ActAsync(
                     "VERA is typing…",
                     "type into it",
@@ -134,7 +138,7 @@ internal static class FindScreen
         catch (Exception e)
 #pragma warning restore CA1031
         {
-            ShowPanel($"Could not {what}: {e.Message}");
+            Ui.ShowErrorPanel($"Could not {what}: {e.Message}");
         }
     }
 
@@ -143,33 +147,6 @@ internal static class FindScreen
         Nothing,
         Click,
         Type,
-    }
-
-    private static void ShowError(AppSettings settings, Exception error)
-    {
-        var text = error switch
-        {
-            LlmUnauthorizedException => error.Message,
-            LlmDailyQuotaException => $"{error.Message} Switch to a local model in Settings to keep working.",
-            // Ollama answers 404 when the model is not installed.
-            HttpRequestException { StatusCode: HttpStatusCode.NotFound } when settings.IsLocalModel =>
-                $"Model '{settings.SelectedModel?.Model}' is not installed. Run: ollama pull {settings.SelectedModel?.Model}",
-            HttpRequestException or IOException or OperationCanceledException => settings.IsLocalModel
-                ? "Could not reach Ollama. Start it and try again."
-                : $"Could not reach {settings.SelectedModel?.DisplayName}. Check your connection and try again.",
-            _ => error.Message,
-        };
-
-        ShowPanel(text);
-    }
-
-    private static void ShowPanel(string text)
-    {
-        AnsiConsole.Write(new Panel(new Text(text, new Style(Color.Red)))
-            .Header("[red]Error[/]")
-            .Border(BoxBorder.Rounded)
-            .BorderColor(Color.Red)
-            .Padding(1, 0));
     }
 
     // Opens the screenshot in the default image viewer; without one, the saved path above is enough.

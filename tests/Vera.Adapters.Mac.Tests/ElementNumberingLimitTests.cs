@@ -53,7 +53,8 @@ public sealed class ElementNumberingLimitTests
             Raw("Hyperlink", "86 comments", 300, 200),
         ]);
 
-        elements.Skip(1).Select(e => e.Name).ShouldBe(["86 comments", "Story row"]);
+        // On Windows the page itself is numbered too (a Document can be typed into, e.g. Notepad's page), so look past it.
+        elements.Skip(1).Where(e => e.Role != pageRole).Select(e => e.Name).ShouldBe(["86 comments", "Story row"]);
     }
 
     [Fact]

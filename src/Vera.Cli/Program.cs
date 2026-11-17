@@ -41,7 +41,9 @@ var settings = new AppSettings
 var secrets = services.GetRequiredService<ISecretStore>();
 var newChat = services.GetRequiredService<Func<string, ChatSession>>();
 var newFind = services.GetRequiredService<Func<string, FindElementService>>();
+var newSteps = services.GetRequiredService<Func<string, StepRunner>>();
 var runningApps = services.GetRequiredService<IRunningAppSource>();
+var stepFiles = services.GetRequiredService<StepFileStore>();
 await SettingsScreen.RefreshApiKeyStateAsync(settings, secrets);
 
 while (true)
@@ -52,11 +54,13 @@ while (true)
         new SelectionPrompt<MainMenuOption>()
             .Title("What do you want to do?")
             .HighlightStyle(Ui.Highlight)
-            .AddChoices(Enum.GetValues<MainMenuOption>())
+            // Only the Windows adapter can click and type, so running steps is Windows-only for now.
+            .AddChoices(Enum.GetValues<MainMenuOption>().Where(o => o != MainMenuOption.RunSteps || OperatingSystem.IsWindows()))
             .UseConverter(option => option switch
             {
                 MainMenuOption.StartTesting => "Start testing an app",
                 MainMenuOption.FindElement => "Find an element in an app",
+                MainMenuOption.RunSteps => "Run steps in an app",
                 MainMenuOption.Settings => "Settings",
                 MainMenuOption.Exit => "Exit",
                 _ => option.ToString(),
@@ -75,6 +79,13 @@ while (true)
             }
 
             break;
+        case MainMenuOption.RunSteps:
+            if (ProcessPicker.Pick(settings, runningApps, "Run steps in an app") is { } stepsApp)
+            {
+                await StepsScreen.ShowAsync(settings, stepsApp, newSteps(settings.SelectedModel!.ProfileName), stepFiles);
+            }
+
+            break;
         case MainMenuOption.Settings:
             await SettingsScreen.ShowAsync(settings, secrets);
             break;
@@ -88,6 +99,7 @@ internal enum MainMenuOption
 {
     StartTesting,
     FindElement,
+    RunSteps,
     Settings,
     Exit,
 }

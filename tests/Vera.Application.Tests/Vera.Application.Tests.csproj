@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>$(VeraHostTfm)</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- Per-Monitor V2 DPI awareness on Windows, so the steps tests read real pixels in Character Map. -->
+    <ApplicationManifest Condition="'$(VeraHostTfm)' == '$(VeraWindowsTfm)'">app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

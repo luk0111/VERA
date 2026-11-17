@@ -116,6 +116,42 @@ public sealed class GeminiChatClientFactoryTests
     }
 
     [Fact]
+    public async Task A_busy_server_is_retried_by_VERA()
+    {
+        var time = new FakeTimeProvider();
+        var recorder = new Recorder(n => n == 1 ? Reply(HttpStatusCode.ServiceUnavailable, """{"error":{"code":503,"status":"UNAVAILABLE"}}""") : Ok());
+        using var client = Create(Profile(), recorder, time: time);
+
+        var call = client.GetResponseAsync("hi", cancellationToken: Ct);
+        for (var i = 0; i < 1000 && !call.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(2, Ct);
+        }
+
+        (await call).Text.ShouldBe("hello");
+        recorder.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_server_that_stays_busy_ends_with_the_busy_message()
+    {
+        var time = new FakeTimeProvider();
+        var recorder = new Recorder(_ => Reply(HttpStatusCode.ServiceUnavailable, ""));
+        using var client = Create(Profile(), recorder, time: time);
+
+        var call = client.GetResponseAsync("hi", cancellationToken: Ct);
+        for (var i = 0; i < 1000 && !call.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(2, Ct);
+        }
+
+        (await Should.ThrowAsync<LlmRateLimitException>(() => call)).Message.ShouldBe(GeminiErrorHandler.BusyMessage);
+        recorder.Requests.Count.ShouldBe(1 + RateLimitChatClient.MaxRetries);
+    }
+
+    [Fact]
     public async Task A_stream_yields_the_text_and_the_usage()
     {
         const string sse = """
