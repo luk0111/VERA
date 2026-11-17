@@ -33,6 +33,27 @@ internal static partial class ElementFinder
         return (found, action.Reason);
     }
 
+    /// <summary>
+    /// The element found in an earlier reading, in a new one: same role, name and locator, the nearest to its old place. No model call.
+    /// Null when it's gone.
+    /// </summary>
+    public static UiElement? Same(IReadOnlyList<UiElement> elements, UiElement found) =>
+        elements
+            .Where(e => e.Id >= 1 && e.Role == found.Role && e.Name == found.Name && e.Locator == found.Locator)
+            .MinBy(e => DistanceSquared(e.Bounds, found.Bounds));
+
+    /// <summary>What the model would see in a reading, without the text inside fields: when it's the same, the model would answer the same.</summary>
+    public static string Seen(ScreenState screen) =>
+        string.Join('\n', screen.Elements.Where(e => e.Id >= 1).Select(e => $"{e.Role}|{e.Name}|{e.Bounds}|{e.IsEnabled}"));
+
+    // Between the centres of two rectangles; long, so huge screens can't overflow.
+    private static long DistanceSquared(ScreenRect a, ScreenRect b)
+    {
+        long dx = (a.X + (a.Width / 2)) - (b.X + (b.Width / 2));
+        long dy = (a.Y + (a.Height / 2)) - (b.Y + (b.Height / 2));
+        return (dx * dx) + (dy * dy);
+    }
+
     // The description already starts with "the", "a" or "an", e.g. "the search button".
     [GeneratedRegex(@"^(the|a|an)\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Article();

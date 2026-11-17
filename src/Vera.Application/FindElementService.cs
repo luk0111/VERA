@@ -68,7 +68,7 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         {
             await adapter.StartAsync(Target(processId, windowTitle), ct).ConfigureAwait(false);
             var screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
-            var same = SameElement(screen.Elements, found)
+            var same = ElementFinder.Same(screen.Elements, found)
                 ?? throw new InvalidOperationException($"\"{found.Name}\" is no longer on the screen.");
             await act(adapter, same.Id).ConfigureAwait(false);
             return same;
@@ -77,19 +77,6 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
 
     private static AppTarget Target(int processId, string windowTitle) =>
         new(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
-
-    private static UiElement? SameElement(IReadOnlyList<UiElement> elements, UiElement found) =>
-        elements
-            .Where(e => e.Id >= 1 && e.Role == found.Role && e.Name == found.Name && e.Locator == found.Locator)
-            .MinBy(e => DistanceSquared(e.Bounds, found.Bounds));
-
-    // Between the centres of two rectangles; long, so huge screens can't overflow.
-    private static long DistanceSquared(ScreenRect a, ScreenRect b)
-    {
-        long dx = (a.X + (a.Width / 2)) - (b.X + (b.Width / 2));
-        long dy = (a.Y + (a.Height / 2)) - (b.Y + (b.Height / 2));
-        return (dx * dx) + (dy * dy);
-    }
 
     private async Task<string> SaveAsync(ReadOnlyMemory<byte> png, CancellationToken ct)
     {

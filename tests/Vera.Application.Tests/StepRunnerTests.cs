@@ -214,6 +214,74 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task An_expect_in_a_window_without_elements_is_inconclusive_not_failed()
+    {
+        ScreenShows(Window);
+
+        var result = await RunAsync("expect the results list");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[0].Outcome.ShouldBe(StepOutcome.NotDone);
+        result.Steps[0].Message.ShouldBe("VERA can't see any buttons or fields in this window. Is it minimized?");
+        await ModelWasAsked(0);
+    }
+
+    [Fact]
+    public async Task An_expect_waits_for_a_slow_app()
+    {
+        ModelPoints("the results list", 3);
+        ScreensShow(Screen("Shop", Window, SearchBox), Screen("Shop", Window), Screen("Shop", Window, SearchBox, Results));
+
+        var result = await RunWaitingAsync("expect the results list");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task The_model_is_asked_again_only_when_the_window_changed()
+    {
+        ScreenShows(Window, SearchBox);
+
+        var result = await RunWaitingAsync("expect the results for dogs");
+
+        result.Verdict.ShouldBe(Verdict.Failed);
+        await ModelWasAsked(1);
+        _adapter.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAppAdapter.GetScreenStateAsync)).ShouldBeGreaterThan(5);
+    }
+
+    [Fact]
+    public async Task Expect_contains_waits_for_the_text_without_asking_the_model_again()
+    {
+        ScreensShow(Screen("Shop", Window, SearchBox with { Value = "" }), Screen("Shop", Window, SearchBox with { Value = "cats" }));
+
+        var result = await RunWaitingAsync("expect the search box contains \"cats\"");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(1);
+    }
+
+    [Fact]
+    public async Task Expect_title_waits_for_the_title()
+    {
+        ScreensShow(Screen("Shop", Window), Screen("Shop - cats", Window));
+
+        (await RunWaitingAsync("expect title contains \"cats\"")).Verdict.ShouldBe(Verdict.Passed);
+    }
+
+    [Fact]
+    public async Task A_click_waits_for_a_button_to_be_enabled()
+    {
+        ScreensShow(Screen("Shop", Window, SearchButton with { IsEnabled = false }), Screen("Shop", Window, SearchButton));
+
+        var result = await RunWaitingAsync("click the search button");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).ClickAsync(2, Arg.Any<CancellationToken>());
+        await ModelWasAsked(1);
+    }
+
+    [Fact]
     public async Task Expect_contains_checks_the_text_in_code()
     {
         ScreenShows(Window, SearchBox with { Value = "cats\r" });
@@ -343,12 +411,26 @@ public sealed class StepRunnerTests : IDisposable
 
     private static List<StepCommand> Steps(params string[] lines) => [.. lines.Select(l => StepParser.Parse(l)!)];
 
-    private StepRunner NewRunner() => new(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero);
+    // No pause, and no waiting unless a test asks for it: each step reads once.
+    private StepRunner NewRunner(TimeSpan? wait = null) => new(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, wait ?? TimeSpan.Zero);
 
     private Task<StepRunResult> RunAsync(params string[] lines) => RunAsync(lines, null);
 
     private Task<StepRunResult> RunAsync(string[] lines, Func<UiElement, Task<bool>>? approveRisky) =>
         NewRunner().RunAsync(1234, "Shop", Steps(lines), approveRisky, null, Ct);
+
+    // Waits up to 0.5 s, reading every 50 ms.
+    private Task<StepRunResult> RunWaitingAsync(string line) =>
+        NewRunner(TimeSpan.FromMilliseconds(500)).RunAsync(1234, "Shop", Steps(line), null, null, Ct);
+
+    // Each reading shows the next screen; the last one stays.
+    private void ScreensShow(params ScreenState[] screens) =>
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(screens[0], screens[1..]);
+
+    private static ScreenState Screen(string title, params UiElement[] elements) => new(title, elements, ReadOnlyMemory<byte>.Empty, []);
+
+    private Task<AgentAction> ModelWasAsked(int times) =>
+        _llm.Received(times).DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
 
     private void ModelPoints(string description, int id) =>
         _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())

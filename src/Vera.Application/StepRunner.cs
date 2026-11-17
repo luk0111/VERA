@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 
 using Vera.Core;
@@ -11,12 +12,20 @@ namespace Vera.Application;
 /// Runs a chain of steps the tester wrote in a running app. The command decides the action; the model only finds each element, as Find does
 /// (<see cref="ElementFinder"/>), and code checks text for <c>expect … contains</c>. No agent decides what to do.
 /// Before each step it reads the window. It saves one screenshot per step and stops at the first step that isn't done.
+/// A slow app gets time: a step whose element isn't there yet (or is disabled, or an expect that doesn't hold yet) reads the window again,
+/// ten times over <paramref name="wait"/>, before it gives up. The model is asked again only when the window's elements changed.
 /// </summary>
 /// <param name="pause">How long the app gets to react after each click, type or key press.</param>
-public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause)
+/// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
+public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null)
 {
     /// <summary>The pause after each action in the app.</summary>
     public static readonly TimeSpan DefaultPause = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long a step waits for the app before it gives up.</summary>
+    public static readonly TimeSpan DefaultWait = TimeSpan.FromSeconds(5);
+
+    private readonly TimeSpan _wait = wait ?? DefaultWait;
 
     /// <param name="approveRisky">Asked before clicking an element with a risky name (<see cref="RiskyWords"/>); false stops the run. Null clicks without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
@@ -79,11 +88,15 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     private Task PauseAsync(CancellationToken ct) => pause > TimeSpan.Zero ? Task.Delay(pause, ct) : Task.CompletedTask;
 
+    // Ten readings over the wait: every 0.5 s for 5 s.
+    private TimeSpan ReadEvery => _wait / 10;
+
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
         Func<UiElement, Task<bool>>? approveRisky, CancellationToken ct)
     {
+        private readonly Stopwatch _clock = new();
         private ScreenState? _screen;
         private UiElement? _element;
 
@@ -93,6 +106,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             string message;
             try
             {
+                _clock.Start();
                 _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
                 (outcome, message) = await DoStepAsync().ConfigureAwait(false);
             }
@@ -137,7 +151,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         throw new StepNotDoneException($"{ElementFinder.Describe(field)} can't take text. Describe the field or text area to type into.");
                     }
 
-                    var text =await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
+                    var text = await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
                     await adapter.TypeAsync(field.Id, text, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
@@ -148,13 +162,16 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"pressed {press.Keys}");
 
                 case ExpectShownStep shown:
-                    var (seen, notSeen) = await FindAsync(shown.Target).ConfigureAwait(false);
+                    var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true).ConfigureAwait(false);
                     return seen is null
                         ? (StepOutcome.CheckFailed, notSeen)
                         : (StepOutcome.Done, $"{ElementFinder.Describe(seen)} is shown");
 
                 case ExpectContainsStep contains:
-                    var (holder, missing) = await FindAsync(contains.Target).ConfigureAwait(false);
+                    // Text that can't be read won't become readable by waiting.
+                    var (holder, missing) = await WaitForAsync(
+                        contains.Target,
+                        e => e.Value is null || e.Value.Contains(contains.Text, StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
                     if (holder is null)
                     {
                         return (StepOutcome.CheckFailed, missing);
@@ -170,7 +187,15 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     };
 
                 case ExpectTitleStep title:
-                    var windowTitle = _screen!.WindowTitle;
+                    while (!_screen!.WindowTitle.Contains(title.Text, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!await ReadAgainAsync().ConfigureAwait(false))
+                        {
+                            break;
+                        }
+                    }
+
+                    var windowTitle = _screen.WindowTitle;
                     return windowTitle.Contains(title.Text, StringComparison.OrdinalIgnoreCase)
                         ? (StepOutcome.Done, $"the title contains {StepCommand.Quote(title.Text)}")
                         : (StepOutcome.CheckFailed, $"The title is {StepCommand.Quote(windowTitle)}, which doesn't contain {StepCommand.Quote(title.Text)}.");
@@ -180,19 +205,63 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
         }
 
-        // The element the model picks for the description, or why there is none.
-        private async Task<(UiElement? Element, string NotFound)> FindAsync(string description)
+        // The element the model picks for the description, waiting for the app until it's there and ready; or why there is none.
+        // The model is asked only when the window's elements changed since it was last asked; the element it found is followed without it.
+        private async Task<(UiElement? Element, string NotFound)> WaitForAsync(string description, Func<UiElement, bool> ready)
         {
-            var (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen!, target, description, ct).ConfigureAwait(false);
+            UiElement? element = null;
+            string? asked = null;
+            var reason = "";
+            do
+            {
+                if (element is not null)
+                {
+                    element = ElementFinder.Same(_screen!.Elements, element);
+                }
+
+                var seen = ElementFinder.Seen(_screen!);
+                if (element is null && _screen!.Elements.Count > 1 && seen != asked)
+                {
+                    asked = seen;
+                    (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct).ConfigureAwait(false);
+                }
+
+                if (element is not null && ready(element))
+                {
+                    break;
+                }
+            }
+            while (await ReadAgainAsync().ConfigureAwait(false));
+
             _element = element;
+
+            // Nothing to look at is not a failed check: the window may be minimized or its elements can't be read.
+            if (_screen!.Elements.Count <= 1)
+            {
+                throw new StepNotDoneException(ElementFinder.NoElementsReason);
+            }
+
             var notFound = $"I can't find {StepCommand.Quote(description)} on this screen.";
             return (element, reason.Length == 0 ? notFound : $"{notFound} {reason}");
+        }
+
+        // Waits a little and reads the window again; false once the step has waited long enough.
+        private async Task<bool> ReadAgainAsync()
+        {
+            if (_clock.Elapsed >= runner._wait)
+            {
+                return false;
+            }
+
+            await Task.Delay(runner.ReadEvery, ct).ConfigureAwait(false);
+            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            return true;
         }
 
         // The element to click or type into: found, and enabled.
         private async Task<UiElement> UsableAsync(string description)
         {
-            var (element, notFound) = await FindAsync(description).ConfigureAwait(false);
+            var (element, notFound) = await WaitForAsync(description, e => e.IsEnabled).ConfigureAwait(false);
             if (element is null)
             {
                 throw new StepNotDoneException(notFound);
