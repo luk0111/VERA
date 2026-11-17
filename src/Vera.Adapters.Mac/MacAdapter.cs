@@ -209,7 +209,9 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
             ReadBool(element, "AXEnabled") ?? true,
             IsOffscreen: false, // macOS has no such flag; numbering drops elements outside the window.
             ReadString(element, "AXIdentifier") ?? "",
-            ReadString(element, "AXValue"));
+
+            // A password field's text is never read, whatever model gets it (#30). macOS shows it as dots anyway.
+            ReadString(element, "AXSubrole") == "AXSecureTextField" ? null : ReadString(element, "AXValue"));
     }
 
     private static ScreenRect? ReadBounds(IntPtr element)

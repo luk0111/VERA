@@ -3,11 +3,15 @@ using System.Diagnostics;
 using System.Net;
 using Spectre.Console;
 using Vera.Application;
+using Vera.Core;
 using Vera.Llm;
 
 namespace Vera.Cli.Screens;
 
-/// <summary>Ask where something is in the selected app. VERA answers in one line and opens a screenshot with the element boxed.</summary>
+/// <summary>
+/// Ask where something is in the selected app. VERA answers in one line and opens a screenshot with the element boxed.
+/// On Windows it then offers to click the element in the app, or to type into it when it is a text field.
+/// </summary>
 internal static class FindScreen
 {
     private const string ExitCommand = "/back";
@@ -73,6 +77,72 @@ internal static class FindScreen
 
         AnsiConsole.MarkupLine($"[grey]Saved: {Markup.Escape(result.ImagePath)}[/]");
         Open(result.ImagePath);
+
+        // Only the Windows adapter can act so far.
+        if (result.Element is { } found && OperatingSystem.IsWindows())
+        {
+            await OfferActionAsync(app, service, found);
+        }
+    }
+
+    // A text field offers typing and clicking; anything else only clicking.
+    private static async Task OfferActionAsync(RunningApp app, FindElementService service, UiElement found)
+    {
+        var action = FindElementService.AcceptsText(found)
+            ? AnsiConsole.Prompt(
+                new SelectionPrompt<FoundAction>()
+                    .Title("What should VERA do with it?")
+                    .HighlightStyle(Ui.Highlight)
+                    .AddChoices(FoundAction.Type, FoundAction.Click, FoundAction.Nothing)
+                    .UseConverter(a => a switch
+                    {
+                        FoundAction.Type => "Type into it",
+                        FoundAction.Click => "Click it",
+                        _ => "Nothing",
+                    }))
+            : AnsiConsole.Confirm("Click it?", defaultValue: false) ? FoundAction.Click : FoundAction.Nothing;
+
+        switch (action)
+        {
+            case FoundAction.Click:
+                await ActAsync(
+                    "VERA is clicking…",
+                    "click it",
+                    () => service.ClickAsync(app.Id, app.WindowTitle, found, CancellationToken.None),
+                    clicked => $"Clicked \"{clicked.Name}\".");
+                break;
+            case FoundAction.Type:
+                var text = AnsiConsole.Prompt(new TextPrompt<string>("What should VERA type? [grey](empty clears the field)[/]").AllowEmpty());
+                await ActAsync(
+                    "VERA is typing…",
+                    "type into it",
+                    () => service.TypeAsync(app.Id, app.WindowTitle, found, text, CancellationToken.None),
+                    typed => text.Length == 0 ? $"Cleared \"{typed.Name}\"." : $"Typed {text.Length} characters into \"{typed.Name}\".");
+                break;
+        }
+    }
+
+    private static async Task ActAsync(string status, string what, Func<Task<UiElement>> act, Func<UiElement, string> done)
+    {
+        try
+        {
+            var element = await AnsiConsole.Status().StartAsync(status, _ => act());
+            AnsiConsole.MarkupLine($"[green]{Markup.Escape(done(element))}[/]");
+            AnsiConsole.MarkupLine("[grey]The app is in front now. Click back into this window to find something else.[/]");
+        }
+#pragma warning disable CA1031 // A failed action is shown on screen; the screen itself must stay open.
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            ShowPanel($"Could not {what}: {e.Message}");
+        }
+    }
+
+    private enum FoundAction
+    {
+        Nothing,
+        Click,
+        Type,
     }
 
     private static void ShowError(AppSettings settings, Exception error)
@@ -90,6 +160,11 @@ internal static class FindScreen
             _ => error.Message,
         };
 
+        ShowPanel(text);
+    }
+
+    private static void ShowPanel(string text)
+    {
         AnsiConsole.Write(new Panel(new Text(text, new Style(Color.Red)))
             .Header("[red]Error[/]")
             .Border(BoxBorder.Rounded)

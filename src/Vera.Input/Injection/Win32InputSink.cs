@@ -49,8 +49,8 @@ internal sealed unsafe partial class Win32InputSink(ILogger<Win32InputSink> logg
         InputEventKind.MouseUp => Mouse(new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: false) }),
         InputEventKind.CharDown => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE),
         InputEventKind.CharUp => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
-        InputEventKind.KeyDown => Keyboard(e.ScanCode, KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE),
-        InputEventKind.KeyUp => Keyboard(e.ScanCode, KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
+        InputEventKind.KeyDown => Keyboard(e.ScanCode, ScanCodeFlags(e)),
+        InputEventKind.KeyUp => Keyboard(e.ScanCode, ScanCodeFlags(e) | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
         _ => throw new ArgumentOutOfRangeException(nameof(e), e.Kind, "Unknown input event kind."),
     };
 
@@ -62,6 +62,9 @@ internal sealed unsafe partial class Win32InputSink(ILogger<Win32InputSink> logg
     /// </summary>
     private static INPUT Keyboard(ushort scan, KEYBD_EVENT_FLAGS flags) =>
         new() { type = INPUT_TYPE.INPUT_KEYBOARD, Anonymous = { ki = new KEYBDINPUT { wScan = scan, dwFlags = flags } } };
+
+    private static KEYBD_EVENT_FLAGS ScanCodeFlags(InputEvent e) =>
+        e.Extended ? KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_EXTENDEDKEY : KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE;
 
     private static MOUSE_EVENT_FLAGS ButtonFlag(MouseButton button, bool down) => button switch
     {

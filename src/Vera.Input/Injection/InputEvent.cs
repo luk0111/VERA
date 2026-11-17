@@ -25,12 +25,14 @@ internal enum InputEventKind
 /// <param name="Button">Which button. Only used by <see cref="InputEventKind.MouseDown"/> and <see cref="InputEventKind.MouseUp"/>.</param>
 /// <param name="Char">Which UTF-16 unit. Only used by <see cref="InputEventKind.CharDown"/> and <see cref="InputEventKind.CharUp"/>.</param>
 /// <param name="ScanCode">Which key. Only used by <see cref="InputEventKind.KeyDown"/> and <see cref="InputEventKind.KeyUp"/>.</param>
+/// <param name="Extended">The key is an extended one (arrows, Home, Win…). Only used with <paramref name="ScanCode"/>.</param>
 internal readonly record struct InputEvent(
     InputEventKind Kind,
     NormalizedPoint Point = default,
     MouseButton Button = MouseButton.Left,
     char Char = default,
-    ushort ScanCode = 0)
+    ushort ScanCode = 0,
+    bool Extended = false)
 {
     public static InputEvent MouseMove(NormalizedPoint point) => new(InputEventKind.MouseMove, Point: point);
 
@@ -42,7 +44,7 @@ internal readonly record struct InputEvent(
 
     public static InputEvent CharUp(char c) => new(InputEventKind.CharUp, Char: c);
 
-    public static InputEvent KeyDown(ushort scanCode) => new(InputEventKind.KeyDown, ScanCode: scanCode);
+    public static InputEvent KeyDown(ushort scanCode, bool extended = false) => new(InputEventKind.KeyDown, ScanCode: scanCode, Extended: extended);
 
-    public static InputEvent KeyUp(ushort scanCode) => new(InputEventKind.KeyUp, ScanCode: scanCode);
+    public static InputEvent KeyUp(ushort scanCode, bool extended = false) => new(InputEventKind.KeyUp, ScanCode: scanCode, Extended: extended);
 }

@@ -34,6 +34,7 @@ internal static class HarnessApp
                 config.AddCommand<MouseCommand>("mouse").WithDescription("Shows live where the mouse is, on the screen and in a screenshot.");
                 config.AddCommand<ClickCommand>("click").WithDescription("Takes a screenshot, clicks a point in it and checks where the cursor landed.");
                 config.AddCommand<TypeCommand>("type").WithDescription("Types text into the window in front, after a countdown.");
+                config.AddCommand<KeysCommand>("keys").WithDescription("Presses a key or combo (e.g. ctrl+s) in the window in front, after a countdown.");
             });
 
             return await app.RunAsync(args);

@@ -25,6 +25,7 @@ public static class ApplicationServiceCollectionExtensions
     /// Registers <see cref="ChatSession"/> as transient for the default profile, a <see cref="Func{T, TResult}"/> that creates one for any profile name,
     /// and the list of <see cref="ConfiguredModel"/>s (default first).
     /// Reads the <c>Files</c> section (limits for <c>/file</c>) through <see cref="FilesServiceCollectionExtensions.AddVeraFiles"/>.
+    /// Models that don't run on this computer get the app's text only after personal data is hidden, including the words in <c>Privacy:HideWords</c>.
     /// Also registers the secret store (Windows Credential Manager on Windows, environment variables elsewhere), the screen and app adapter for this system
     /// (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/> (transient for the default profile, plus a
     /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>.
@@ -36,6 +37,9 @@ public static class ApplicationServiceCollectionExtensions
 
         var (profiles, defaultName) = ReadProfiles(config);
 
+        // Personal, so it belongs in the git-ignored appsettings.Local.json, e.g. { "Privacy": { "HideWords": [ "Alex", "alex123" ] } }.
+        var hideWords = config.GetSection("Privacy:HideWords").Get<string[]>() ?? [];
+
 #if WINDOWS
         services.AddVeraSecrets();
 #else
@@ -46,7 +50,7 @@ public static class ApplicationServiceCollectionExtensions
         {
             try
             {
-                services.AddVeraLlm(profile, asDefault: profile.Name == defaultName);
+                services.AddVeraLlm(profile, asDefault: profile.Name == defaultName, hideWords);
             }
             catch (Exception e) when (e is NotSupportedException or ArgumentException)
             {
@@ -75,6 +79,7 @@ public static class ApplicationServiceCollectionExtensions
 #else
         services.AddVeraMacAdapter();
 #endif
+        services.AddTransient(sp => new ChatAppContextReader(sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>()));
         services.AddTransient(sp => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(

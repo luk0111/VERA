@@ -71,13 +71,13 @@ public sealed record DelayOptions
     public int AfterClick { get; init; } = 300;
 
     /// <summary>
-    /// Between two typed characters (or Enter/Tab). The Windows 11 Notepad loses characters at 10 ms (e.g. when
+    /// Between two typed characters (or Enter/Tab), and between repeats of a key combo. The Windows 11 Notepad loses characters at 10 ms (e.g. when
     /// switching to Cyrillic) and works from 15 ms; 20 ms leaves some margin.
     /// </summary>
     [Range(0, 5000)]
     public int BetweenKeys { get; init; } = 20;
 
-    /// <summary>After typing, so the app can redraw before the next screenshot.</summary>
+    /// <summary>After typing or pressing a key combo, so the app can redraw before the next screenshot.</summary>
     [Range(0, 10000)]
     public int AfterType { get; init; } = 200;
 }

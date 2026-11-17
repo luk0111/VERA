@@ -58,4 +58,16 @@ public sealed class Win32InputSinkTests
         down.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE);
         up.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP);
     }
+
+    [Fact]
+    public void An_extended_key_gets_the_extended_flag()
+    {
+        var down = Win32InputSink.ToInput(InputEvent.KeyDown(0x4B, extended: true));
+        var up = Win32InputSink.ToInput(InputEvent.KeyUp(0x4B, extended: true));
+
+        down.Anonymous.ki.wScan.ShouldBe((ushort)0x4B);
+        down.Anonymous.ki.dwFlags.ShouldBe(KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_EXTENDEDKEY);
+        up.Anonymous.ki.dwFlags.ShouldBe(
+            KEYBD_EVENT_FLAGS.KEYEVENTF_SCANCODE | KEYBD_EVENT_FLAGS.KEYEVENTF_EXTENDEDKEY | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP);
+    }
 }

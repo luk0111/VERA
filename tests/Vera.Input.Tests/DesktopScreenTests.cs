@@ -246,6 +246,7 @@ public sealed class DesktopScreenTests
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ClickAsync(10, 10, ct: Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().MoveAsync(10, 10, Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().TypeTextAsync("a", ct: Ct));
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().KeyAsync("enter", ct: Ct));
 
         _sink.Events.ShouldBeEmpty();
     }
@@ -287,6 +288,25 @@ public sealed class DesktopScreenTests
     public async Task Empty_text_does_nothing()
     {
         await Screen().TypeTextAsync("", ct: Ct);
+
+        _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_key_combo_checks_the_capture_monitor_then_presses_and_logs()
+    {
+        await Screen().KeyAsync("Ctrl+S", 2, Ct);
+
+        _guard.Received(1).EnsureReady(Monitor.Bounds);
+        _sink.Events.Count.ShouldBe(8);
+        _logger.Messages.ShouldContain(m => m.Contains("ctrl+s", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_bad_combo_throws_before_the_guard_and_presses_nothing()
+    {
+        await Should.ThrowAsync<InvalidKeyComboException>(() => Screen().KeyAsync("win+l", ct: Ct));
 
         _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
         _sink.Events.ShouldBeEmpty();

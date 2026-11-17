@@ -493,6 +493,9 @@ runs/
 # Restricted project documents
 VERA*.pdf
 
+# Personal app settings (appsettings.json is shared)
+appsettings.Local.json
+
 # Personal Claude Code notes (CLAUDE.md is shared)
 CLAUDE.local.md
 
