@@ -11,8 +11,6 @@ namespace Vera.Application;
 /// </summary>
 public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient llm, string outputDirectory)
 {
-    internal const string NoElementsReason = "VERA can't see any buttons or fields in this window. Is it minimized?";
-
     /// <param name="what">What the tester typed, e.g. <c>Log in button</c>.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     public async Task<FindResult> FindAsync(int processId, string windowTitle, string what, CancellationToken ct)
@@ -26,20 +24,9 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
             screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
         }
 
-        if (screen.Elements.Count <= 1)
-        {
-            return new FindResult(false, null, NoElementsReason, await SaveAsync(screen.ScreenshotPng, ct).ConfigureAwait(false));
-        }
-
-        // "Has been clicked", not "is found": the model answers "done" once the expected result is on screen, and a visible element is already found.
-        var task = new TestTask($"Click the {what}", $"The {what} has been clicked", target);
-        var action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
-
-        var element = action.Type is AgentActionType.Click or AgentActionType.Type
-            ? screen.Elements.FirstOrDefault(e => e.Id > 0 && e.Id == action.TargetId)
-            : null;
+        var (element, reason) = await ElementFinder.FindAsync(llm, screen, target, what, ct).ConfigureAwait(false);
         var image = element is null ? screen.ScreenshotPng : ElementHighlight.DrawBox(screen.ScreenshotPng, screen.Elements[0].Bounds, element.Bounds);
-        return new FindResult(element is not null, element, action.Reason, await SaveAsync(image, ct).ConfigureAwait(false));
+        return new FindResult(element is not null, element, reason, await SaveAsync(image, ct).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -63,11 +50,14 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         return ActOnAsync(processId, windowTitle, found, (adapter, id) => adapter.TypeAsync(id, text, ct), ct);
     }
 
-    /// <summary>Whether the tester can type into the element: a text field. Others can only be clicked.</summary>
+    /// <summary>
+    /// Whether the element can be typed into: a text field, a text area (e.g. Windows 11 Notepad's page) or a combo box, which can often be typed into.
+    /// Others (buttons, tabs, links, menus…) can only be clicked.
+    /// </summary>
     public static bool AcceptsText(UiElement element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return element.Role == "Edit";
+        return element.Role is "Edit" or "Document" or "ComboBox";
     }
 
     private async Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
@@ -78,7 +68,7 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         {
             await adapter.StartAsync(Target(processId, windowTitle), ct).ConfigureAwait(false);
             var screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
-            var same = SameElement(screen.Elements, found)
+            var same = ElementFinder.Same(screen.Elements, found)
                 ?? throw new InvalidOperationException($"\"{found.Name}\" is no longer on the screen.");
             await act(adapter, same.Id).ConfigureAwait(false);
             return same;
@@ -87,19 +77,6 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
 
     private static AppTarget Target(int processId, string windowTitle) =>
         new(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
-
-    private static UiElement? SameElement(IReadOnlyList<UiElement> elements, UiElement found) =>
-        elements
-            .Where(e => e.Id >= 1 && e.Role == found.Role && e.Name == found.Name && e.Locator == found.Locator)
-            .MinBy(e => DistanceSquared(e.Bounds, found.Bounds));
-
-    // Between the centres of two rectangles; long, so huge screens can't overflow.
-    private static long DistanceSquared(ScreenRect a, ScreenRect b)
-    {
-        long dx = (a.X + (a.Width / 2)) - (b.X + (b.Width / 2));
-        long dy = (a.Y + (a.Height / 2)) - (b.Y + (b.Height / 2));
-        return (dx * dx) + (dy * dy);
-    }
 
     private async Task<string> SaveAsync(ReadOnlyMemory<byte> png, CancellationToken ct)
     {

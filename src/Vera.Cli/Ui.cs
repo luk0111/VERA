@@ -1,4 +1,6 @@
+using System.Net;
 using Spectre.Console;
+using Vera.Llm;
 
 namespace Vera.Cli;
 
@@ -52,6 +54,34 @@ internal static class Ui
     {
         AnsiConsole.Write(new Rule($"[teal]{Markup.Escape(title)}[/]").LeftJustified().RuleStyle(Color.Grey));
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>Shows an error from asking the model or the app, in the tester's words (Ollama not running, model not installed, key or quota).</summary>
+    public static void ShowError(AppSettings settings, Exception error)
+    {
+        var text = error switch
+        {
+            LlmUnauthorizedException => error.Message,
+            LlmDailyQuotaException => $"{error.Message} Switch to a local model in Settings to keep working.",
+            // Ollama answers 404 when the model is not installed.
+            HttpRequestException { StatusCode: HttpStatusCode.NotFound } when settings.IsLocalModel =>
+                $"Model '{settings.SelectedModel?.Model}' is not installed. Run: ollama pull {settings.SelectedModel?.Model}",
+            HttpRequestException or IOException or OperationCanceledException => settings.IsLocalModel
+                ? "Could not reach Ollama. Start it and try again."
+                : $"Could not reach {settings.SelectedModel?.DisplayName}. Check your connection and try again.",
+            _ => error.Message,
+        };
+
+        ShowErrorPanel(text);
+    }
+
+    public static void ShowErrorPanel(string text)
+    {
+        AnsiConsole.Write(new Panel(new Text(text, new Style(Color.Red)))
+            .Header("[red]Error[/]")
+            .Border(BoxBorder.Rounded)
+            .BorderColor(Color.Red)
+            .Padding(1, 0));
     }
 
     public static void Pause()

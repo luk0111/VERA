@@ -7,7 +7,8 @@ namespace Vera.Llm;
 /// <summary>
 /// Turns Gemini's error replies into provider-neutral exceptions, so no SDK type reaches the callers:
 /// a rejected key → <see cref="LlmUnauthorizedException"/>, the daily quota → <see cref="LlmDailyQuotaException"/>,
-/// a per-minute limit → <see cref="LlmRateLimitException"/> (retried by <see cref="RateLimitChatClient"/>). Other replies pass through.
+/// a per-minute limit or a busy server (500, 502, 503, 504) → <see cref="LlmRateLimitException"/> (retried by <see cref="RateLimitChatClient"/>).
+/// Other replies pass through.
 /// </summary>
 internal sealed class GeminiErrorHandler : DelegatingHandler
 {
@@ -18,10 +19,13 @@ internal sealed class GeminiErrorHandler : DelegatingHandler
 
     internal const string RateLimitMessage = "Gemini is getting too many requests per minute. Wait a minute and try again.";
 
+    internal const string BusyMessage = "Gemini is busy right now. Wait a minute and try again, or switch to the local model in Settings.";
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests or HttpStatusCode.BadRequest))
+        if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests or HttpStatusCode.BadRequest)
+            && !IsBusy(response.StatusCode))
         {
             return response;
         }
@@ -60,10 +64,17 @@ internal sealed class GeminiErrorHandler : DelegatingHandler
                     ? new LlmDailyQuotaException(DailyQuotaMessage)
                     : new LlmRateLimitException(RateLimitMessage, retryDelay ?? retryAfterHeader);
 
+            // Google's servers are overloaded or briefly down (seen often on the free tier): retried like a per-minute limit.
+            case var busy when IsBusy(busy):
+                return new LlmRateLimitException(BusyMessage, retryAfterHeader);
+
             default:
                 return null;
         }
     }
+
+    private static bool IsBusy(HttpStatusCode status) => status is HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway
+        or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
 
     // Google's error body is {"error":{...,"details":[...]}}; the OpenAI-compatible endpoint sometimes wraps it in an array.
     // QuotaFailure details name the quota (e.g. "GenerateRequestsPerDayPerProjectPerModel-FreeTier"); RetryInfo has "retryDelay": "37s".

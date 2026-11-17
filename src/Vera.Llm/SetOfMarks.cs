@@ -37,10 +37,12 @@ internal static class SetOfMarks
         }
 
         // Sizes are in screenshot pixels, so after scaling they shrink with the image.
-        using var outline = new SKPaint { Color = MarkColor, Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = false };
+        // With many marks (a big page for Gemini, #41) labels and outlines get smaller, so they don't cover each other and the buttons.
+        var (fontSize, strokeWidth) = MarkSize(elements.Count - 1);
+        using var outline = new SKPaint { Color = MarkColor, Style = SKPaintStyle.Stroke, StrokeWidth = strokeWidth, IsAntialias = false };
         using var label = new SKPaint { Color = MarkColor, Style = SKPaintStyle.Fill };
         using var text = new SKPaint { Color = SKColors.White, IsAntialias = true };
-        using var font = new SKFont { Size = 14 };
+        using var font = new SKFont { Size = fontSize };
 
         var window = elements[0].Bounds;
         foreach (var element in elements.Skip(1))
@@ -51,7 +53,7 @@ internal static class SetOfMarks
 
             var number = element.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var width = font.MeasureText(number) + 6;
-            canvas.DrawRect(x, y, width, font.Size + 4, label);
+            canvas.DrawRect(x, y, width, font.Size + 3, label);
             canvas.DrawText(number, x + 3, y + font.Size, SKTextAlign.Left, font, text);
         }
 
@@ -59,4 +61,12 @@ internal static class SetOfMarks
         using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         return encoded.ToArray();
     }
+
+    /// <summary>Label size and outline width for <paramref name="marks"/> numbers: the usual size up to 80, then smaller.</summary>
+    internal static (float FontSize, float StrokeWidth) MarkSize(int marks) => marks switch
+    {
+        <= 80 => (14, 2),
+        <= 160 => (11, 1),
+        _ => (9, 1),
+    };
 }

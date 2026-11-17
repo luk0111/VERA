@@ -59,4 +59,20 @@ public sealed class SetOfMarksTests
     }
 
     private static SKBitmap Decode(byte[] png) => SKBitmap.Decode(png);
+
+    [Theory]
+    [InlineData(10, 14, 2)]
+    [InlineData(80, 14, 2)]
+    [InlineData(81, 11, 1)]
+    [InlineData(250, 9, 1)]
+    public void Marks_get_smaller_when_there_are_many(int marks, float fontSize, float strokeWidth)
+    {
+        SetOfMarks.MarkSize(marks).ShouldBe((fontSize, strokeWidth));
+    }
+
+    [Fact]
+    public void A_profile_gives_80_elements_unless_it_says_otherwise()
+    {
+        new LlmProfile().MaxElements.ShouldBe(80);
+    }
 }

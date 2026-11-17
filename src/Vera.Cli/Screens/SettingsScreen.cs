@@ -4,7 +4,7 @@ using Vera.Core;
 
 namespace Vera.Cli.Screens;
 
-internal static class SettingsScreen
+internal static partial class SettingsScreen
 {
     private const string GeminiKeyPage = "https://aistudio.google.com/apikey";
 
@@ -12,6 +12,7 @@ internal static class SettingsScreen
     {
         ChooseModel,
         ConnectApi,
+        SaveSecret,
         MaxSteps,
         RiskyActions,
         Screenshots,
@@ -36,6 +37,7 @@ internal static class SettingsScreen
                     {
                         Option.ChooseModel => "Choose the model",
                         Option.ConnectApi => "Connect your API key",
+                        Option.SaveSecret => "Save a secret for typing (e.g. a password)",
                         Option.MaxSteps => "Max steps per test",
                         Option.RiskyActions => "Ask before risky actions",
                         Option.Screenshots => "Save screenshots",
@@ -50,6 +52,9 @@ internal static class SettingsScreen
                     break;
                 case Option.ConnectApi:
                     await ConnectApiAsync(settings, secrets);
+                    break;
+                case Option.SaveSecret:
+                    await SaveSecretAsync(settings, secrets);
                     break;
                 case Option.MaxSteps:
                     settings.MaxStepsPerTest = AnsiConsole.Prompt(
@@ -122,9 +127,15 @@ internal static class SettingsScreen
                 .Title("Choose the model:")
                 .HighlightStyle(Ui.Highlight)
                 .AddChoices(choices)
-                .UseConverter(c => c.Model is { } model
-                    ? Markup.Escape(AppSettings.Display(model))
+                .AddChoices(ModelChoice.Back)
+                .UseConverter(c => c == ModelChoice.Back ? "[grey]Back[/]"
+                    : c.Model is { } model ? Markup.Escape(AppSettings.Display(model))
                     : $"{Markup.Escape(c.Upcoming!)} [grey](coming later)[/]"));
+
+        if (choice == ModelChoice.Back)
+        {
+            return;
+        }
 
         if (choice.Model is not { } chosen)
         {
@@ -160,11 +171,13 @@ internal static class SettingsScreen
         }
 
         var key = AnsiConsole.Prompt(
-            new TextPrompt<string>($"Paste your [teal]{Markup.Escape(model.DisplayName)}[/] API key:")
+            new TextPrompt<string>($"Paste your [teal]{Markup.Escape(model.DisplayName)}[/] API key [grey](empty to go back)[/]:")
                 .Secret()
-                .Validate(k => string.IsNullOrWhiteSpace(k)
-                    ? ValidationResult.Error("[red]The key can't be empty.[/]")
-                    : ValidationResult.Success()));
+                .AllowEmpty());
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
 
         try
         {
@@ -184,6 +197,64 @@ internal static class SettingsScreen
         Ui.Pause();
     }
 
-    // Either a configured model or the name of one that comes later.
-    private sealed record ModelChoice(ConfiguredModel? Model, string? Upcoming);
+    // A secret a step types with {{secret:name}}, e.g. a test account's password. It's saved like the API keys.
+    private static async Task SaveSecretAsync(AppSettings settings, ISecretStore secrets)
+    {
+        AnsiConsole.MarkupLine(Markup.Escape("A step types a saved secret with \"{{secret:name}}\", e.g. type \"{{secret:portal-password}}\" into the password field."));
+        AnsiConsole.MarkupLine("[grey]VERA fills it in only when typing. The steps and logs show only the placeholder. Type secrets into password fields, so they stay hidden on screen too.[/]");
+        AnsiConsole.WriteLine();
+
+        var keyNames = settings.ConfiguredModels
+            .Where(m => !string.IsNullOrWhiteSpace(m.ApiKeyName))
+            .Select(m => m.ApiKeyName!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var name = AnsiConsole.Prompt(
+            new TextPrompt<string>("Secret name [grey](letters, digits, _ . -; empty to go back)[/]:")
+                .AllowEmpty()
+                .Validate(n => n.Trim() switch
+                {
+                    { Length: 0 } => ValidationResult.Success(),
+                    var trimmed when !SecretName().IsMatch(trimmed) => ValidationResult.Error("[red]Use only letters, digits, _ . and -, e.g. portal-password.[/]"),
+                    var trimmed when keyNames.Contains(trimmed) => ValidationResult.Error("[red]That name holds a model's API key. Pick another name.[/]"),
+                    _ => ValidationResult.Success(),
+                })).Trim();
+        if (name.Length == 0)
+        {
+            return;
+        }
+
+        var value = AnsiConsole.Prompt(
+            new TextPrompt<string>($"Value of [teal]{Markup.Escape(name)}[/] [grey](empty to go back)[/]:")
+                .Secret()
+                .AllowEmpty());
+        if (value.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await secrets.SetAsync(name, value, CancellationToken.None);
+        }
+        catch (NotSupportedException e)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(e.Message)}[/]");
+            Ui.Pause();
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[green]Saved {Markup.Escape(name)} to Windows Credential Manager.[/] " +
+            Markup.Escape($"Use it in a step as \"{{{{secret:{name}}}}}\"."));
+        Ui.Pause();
+    }
+
+    // The characters a {{secret:name}} placeholder allows (see SecretPlaceholder in Vera.Core).
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9_.\-]+$")]
+    private static partial System.Text.RegularExpressions.Regex SecretName();
+
+    // Either a configured model or the name of one that comes later; neither is the Back entry.
+    private sealed record ModelChoice(ConfiguredModel? Model, string? Upcoming)
+    {
+        public static ModelChoice Back { get; } = new(null, null);
+    }
 }

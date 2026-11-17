@@ -178,10 +178,13 @@ public sealed class FindElementServiceTests : IDisposable
     }
 
     [Fact]
-    public void Only_text_fields_accept_text()
+    public void Only_text_fields_areas_and_combos_accept_text()
     {
         FindElementService.AcceptsText(Email).ShouldBeTrue();
+        FindElementService.AcceptsText(Email with { Role = "Document" }).ShouldBeTrue();
+        FindElementService.AcceptsText(Email with { Role = "ComboBox" }).ShouldBeTrue();
         FindElementService.AcceptsText(LogIn).ShouldBeFalse();
+        FindElementService.AcceptsText(LogIn with { Role = "TabItem" }).ShouldBeFalse();
     }
 
     public void Dispose()
