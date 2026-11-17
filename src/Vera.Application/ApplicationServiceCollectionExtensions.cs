@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +12,7 @@ using Vera.Secrets;
 using Vera.Adapters.Mac;
 #endif
 using Vera.Core;
+using Vera.Files;
 using Vera.Llm;
 
 namespace Vera.Application;
@@ -21,6 +24,7 @@ public static class ApplicationServiceCollectionExtensions
     /// keyed by its name; <c>Llm:DefaultProfile</c> is also registered without a key.
     /// Registers <see cref="ChatSession"/> as transient for the default profile, a <see cref="Func{T, TResult}"/> that creates one for any profile name,
     /// and the list of <see cref="ConfiguredModel"/>s (default first).
+    /// Reads the <c>Files</c> section (limits for <c>/file</c>) through <see cref="FilesServiceCollectionExtensions.AddVeraFiles"/>.
     /// Also registers the secret store (Windows Credential Manager on Windows, environment variables elsewhere), the screen and app adapter for this system
     /// (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/> (transient for the default profile, plus a
     /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>.
@@ -55,11 +59,14 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IReadOnlyList<ConfiguredModel>>(profiles
             .Select(p => new ConfiguredModel(p.Name, p.Provider, p.DisplayName, p.Model, !string.IsNullOrWhiteSpace(p.ApiKeyName), p.ApiKeyName))
             .ToList());
+        CheckFilesSection(config);
+        services.AddVeraFiles(config);
         services.AddTransient<ChatSession>();
         services.AddSingleton<Func<string, ChatSession>>(sp => name => new ChatSession(
             sp.GetRequiredKeyedService<IChatClient>(name),
             sp.GetRequiredKeyedService<LlmProfile>(name),
-            sp.GetRequiredKeyedService<IConnectionChecker>(name)));
+            sp.GetRequiredKeyedService<IConnectionChecker>(name),
+            sp.GetRequiredService<IFileReader>()));
         services.AddLogging();
 #if WINDOWS
         services.AddVeraInput(config);
@@ -73,6 +80,26 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
         return services;
+    }
+
+    // The console app has no host, so the options are not checked at start. Check the Files section here to report a mistake in it as a configuration error.
+    private static void CheckFilesSection(IConfiguration config)
+    {
+        var options = new FileAccessOptions();
+        try
+        {
+            config.GetSection(FileAccessOptions.SectionName).Bind(options, binder => binder.ErrorOnUnknownConfiguration = true);
+        }
+        catch (InvalidOperationException e)
+        {
+            throw new VeraConfigurationException($"'Files' in appsettings.json: {e.Message}", e);
+        }
+
+        var problems = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(options, new ValidationContext(options), problems, validateAllProperties: true))
+        {
+            throw new VeraConfigurationException($"'Files' in appsettings.json: {string.Join(" ", problems.Select(p => p.ErrorMessage))}");
+        }
     }
 
     // Returns every profile, the default one first, then the rest in config order.

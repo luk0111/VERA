@@ -21,7 +21,8 @@ Stack: C# on .NET 10, Spectre.Console, SQLite. The model can be local, in-house 
 | `Vera.Adapters.Desktop` | Reads a running window's elements with UI Automation (FlaUI), numbers them, and takes its screenshot through `Vera.Input` |
 | `Vera.Adapters.Mac` | The macOS version of the desktop adapter: lists running apps, reads a window's elements with the Accessibility API, and takes screenshots with `screencapture`. It shares numbering with `Vera.Adapters.Desktop`. See [workflow.md](workflow.md#macos) |
 | `Vera.Llm` | Connects to the model (Ollama for now) through `Microsoft.Extensions.AI`. Draws element numbers on the screenshot (Set-of-Marks) and asks the model for one action |
+| `Vera.Files` | Reads text files and the text layer of PDFs from disk (`IFileReader`, PdfPig): refuses secret files, cuts long text, reads PDF pages. Knows nothing about models or the chat |
 | `Vera.Reporting` | Draws a red box around an element on a screenshot |
-| `Vera.Application` | Connects the layers for the UI: chat about the selected app, find an element in a running app |
+| `Vera.Application` | Connects the layers for the UI: chat about the selected app (`/file` attaches a file to it), find an element in a running app |
 | `Vera.Cli` | The console app: start testing (chat), find an element, settings |
 | Everything else | Empty project so far: `Vera.Agent`, `Vera.Replay`, `Vera.Adapters.Web`, `Vera.Adapters.Remote`, `Vera.RemoteAgent`, `Vera.Protos`, `Vera.Storage`, `Vera.Secrets` |
