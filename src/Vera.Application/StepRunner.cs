@@ -131,7 +131,13 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
                 case TypeStep type:
                     var field = await UsableAsync(type.Target).ConfigureAwait(false);
-                    var text = await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
+                    if (!FindElementService.AcceptsText(field))
+                    {
+                        // The model picked something else, e.g. Notepad's tab for "notepad": typing there would do nothing useful.
+                        throw new StepNotDoneException($"{ElementFinder.Describe(field)} can't take text. Describe the field or text area to type into.");
+                    }
+
+                    var text =await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
                     await adapter.TypeAsync(field.Id, text, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");

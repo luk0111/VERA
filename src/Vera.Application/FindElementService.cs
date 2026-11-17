@@ -50,11 +50,14 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         return ActOnAsync(processId, windowTitle, found, (adapter, id) => adapter.TypeAsync(id, text, ct), ct);
     }
 
-    /// <summary>Whether the tester can type into the element: a text field. Others can only be clicked.</summary>
+    /// <summary>
+    /// Whether the element can be typed into: a text field, a text area (e.g. Windows 11 Notepad's page) or a combo box, which can often be typed into.
+    /// Others (buttons, tabs, links, menus…) can only be clicked.
+    /// </summary>
     public static bool AcceptsText(UiElement element)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return element.Role == "Edit";
+        return element.Role is "Edit" or "Document" or "ComboBox";
     }
 
     private async Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)

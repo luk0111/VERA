@@ -14,6 +14,9 @@ internal static class ElementNumbering
     private static readonly HashSet<string> ActionableRoles = new(StringComparer.Ordinal)
     {
         "Button", "Edit", "CheckBox", "RadioButton", "ComboBox", "Hyperlink", "MenuItem", "TabItem", "ListItem", "Slider", "SplitButton",
+
+        // A text area, e.g. Windows 11 Notepad's page: there is no Edit to type into.
+        "Document",
     };
 
     public static IReadOnlyList<UiElement> Number(string windowTitle, ScreenRect window, IReadOnlyList<RawElement> candidates)

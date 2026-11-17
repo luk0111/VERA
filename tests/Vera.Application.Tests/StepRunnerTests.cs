@@ -179,6 +179,31 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Typing_into_something_that_cannot_take_text_is_not_done()
+    {
+        ModelPoints("the notepad", 2);
+
+        var result = await RunAsync("type \"cats\" into notepad");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[0].Message.ShouldBe("button \"Search\" can't take text. Describe the field or text area to type into.");
+        await _adapter.DidNotReceiveWithAnyArgs().TypeAsync(default, default!, Ct);
+    }
+
+    [Fact]
+    public async Task A_text_area_can_be_typed_into()
+    {
+        var page = new UiElement(5, "Document", "Text editor", new ScreenRect(110, 240, 380, 150), true, "page");
+        ScreenShows(Window, page);
+        ModelPoints("the notepad", 5);
+
+        var result = await RunAsync("type \"cats\" into notepad");
+
+        result.Steps[0].Message.ShouldBe("typed into text area \"Text editor\" (element 5)");
+        await _adapter.Received(1).TypeAsync(5, "cats", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task An_expect_the_model_cannot_find_fails_the_run()
     {
         var result = await RunAsync("expect the results for dogs");

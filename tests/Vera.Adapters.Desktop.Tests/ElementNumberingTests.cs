@@ -25,6 +25,7 @@ public sealed class ElementNumberingTests
         [
             Raw("Button", "OK", 120, 120),
             Raw("Text", "Label", 120, 160),
+            Raw("Document", "Text editor", 120, 180),
             Raw("Button", "Hidden", 120, 200) with { IsOffscreen = true },
             Raw("Button", "Zero", 120, 240) with { Bounds = new ScreenRect(120, 240, 0, 0) },
             Raw("Button", "Outside", 600, 120),
@@ -32,7 +33,7 @@ public sealed class ElementNumberingTests
 
         var elements = ElementNumbering.Number("Calc", Window, candidates);
 
-        elements.Skip(1).Select(e => e.Name).ShouldBe(["OK"]);
+        elements.Skip(1).Select(e => e.Name).ShouldBe(["OK", "Text editor"]);
     }
 
     [Fact]

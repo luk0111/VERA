@@ -43,6 +43,7 @@ internal static partial class ElementFinder
         var role = element.Role switch
         {
             "Edit" => "field",
+            "Document" => "text area",
             "Hyperlink" => "link",
             "MenuItem" => "menu",
             "TabItem" => "tab",
