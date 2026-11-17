@@ -83,6 +83,38 @@ public sealed class ChatScopeTests
         reply.ShouldNotMatch(@"\d{4}");
     }
 
+    [Theory]
+    [InlineData("What is the content of the file?")]
+    [InlineData("Find the order number in the file.")]
+    public async Task The_model_answers_questions_about_an_attached_file(string message)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"vera-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "Order number: 58213. Expected: the order shows as Paid.", Ct);
+        try
+        {
+            var session = NewSession();
+            await session.AttachFileAsync(path, null, Ct);
+
+            var reply = await ReplyAsync(session, message);
+
+            reply.ShouldNotContain(ChatSession.OffTopicReply);
+            reply.ShouldContain("58213");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task The_model_asks_to_attach_a_file_it_was_not_given()
+    {
+        var reply = await AskAsync(@"Find the text in the file ""D:\docs\testFile.txt""");
+
+        reply.ShouldNotContain(ChatSession.OffTopicReply);
+        reply.ShouldContain("/file");
+    }
+
     private static async Task<string> AskAsync(string message, ChatAppContext? app = null)
     {
         var session = NewSession();
