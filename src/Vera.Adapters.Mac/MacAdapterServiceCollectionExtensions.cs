@@ -20,7 +20,7 @@ public static class MacAdapterServiceCollectionExtensions
         services.AddSingleton<IRunningAppSource, MacRunningApps>();
         services.AddSingleton<Func<IAppAdapter>>(sp =>
         {
-            var screen = sp.GetRequiredService<IScreenshotSource>();
+            var screen = sp.GetRequiredService<IScreen>();
             return () => new MacAdapter(screen);
         });
         return services;

@@ -52,28 +52,28 @@ public sealed class DesktopAdapterTests
     public void An_element_is_clicked_in_its_centre_in_screenshot_pixels()
     {
         // Element at 120..200 × 220..250 on screen; the screenshot starts at the window's corner (100, 200).
-        DesktopAdapter.ClickPoint(new ScreenRect(120, 220, 80, 30), Window).ShouldBe((60, 35));
+        ClickPoint.Of(new ScreenRect(120, 220, 80, 30), Window).ShouldBe((60, 35));
     }
 
     [Fact]
     public void Only_the_part_inside_the_window_counts()
     {
         // Sticks out 100 px past the right edge (500): the visible part is 450..500.
-        DesktopAdapter.ClickPoint(new ScreenRect(450, 300, 150, 20), Window).ShouldBe((375, 110));
+        ClickPoint.Of(new ScreenRect(450, 300, 150, 20), Window).ShouldBe((375, 110));
     }
 
     [Fact]
     public void An_element_outside_the_window_has_no_click_point()
     {
-        DesktopAdapter.ClickPoint(new ScreenRect(500, 300, 50, 20), Window).ShouldBeNull();
-        DesktopAdapter.ClickPoint(new ScreenRect(0, 0, 100, 200), Window).ShouldBeNull();
+        ClickPoint.Of(new ScreenRect(500, 300, 50, 20), Window).ShouldBeNull();
+        ClickPoint.Of(new ScreenRect(0, 0, 100, 200), Window).ShouldBeNull();
     }
 
     [Fact]
     public void A_click_point_never_leaves_the_screenshot()
     {
         // A 1-pixel element in the window's bottom-right corner.
-        DesktopAdapter.ClickPoint(new ScreenRect(499, 499, 1, 1), Window).ShouldBe((399, 299));
+        ClickPoint.Of(new ScreenRect(499, 499, 1, 1), Window).ShouldBe((399, 299));
     }
 }
 

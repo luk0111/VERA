@@ -81,7 +81,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         var (state, window) = LatestReading();
         var element = state.Elements.FirstOrDefault(e => e.Id >= 1 && e.Id == elementId)
             ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
-        var point = ClickPoint(element.Bounds, window)
+        var point = ClickPoint.Of(element.Bounds, window)
             ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");
 
         await BeforeActingAsync(window, ct).ConfigureAwait(false);
@@ -117,24 +117,6 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         var (_, window) = LatestReading();
         await BeforeActingAsync(window, ct).ConfigureAwait(false);
         await ActAsync(() => screen.KeyAsync(keys, ct: ct)).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// The point to click for an element, in the window screenshot's pixels: the centre of the part of the element inside the window.
-    /// Null when no part of it is inside.
-    /// </summary>
-    internal static (int X, int Y)? ClickPoint(ScreenRect element, ScreenRect window)
-    {
-        var left = Math.Max(element.X, window.X);
-        var top = Math.Max(element.Y, window.Y);
-        var right = Math.Min(element.X + element.Width, window.X + window.Width);
-        var bottom = Math.Min(element.Y + element.Height, window.Y + window.Height);
-        if (right <= left || bottom <= top)
-        {
-            return null;
-        }
-
-        return (left + ((right - left) / 2) - window.X, top + ((bottom - top) / 2) - window.Y);
     }
 
     public ValueTask DisposeAsync()

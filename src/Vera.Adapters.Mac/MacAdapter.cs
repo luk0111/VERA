@@ -7,13 +7,15 @@ using Vera.Input;
 namespace Vera.Adapters.Mac;
 
 /// <summary>
-/// Reads a running Mac app's window: its elements through the Accessibility API, its picture through <see cref="IScreenshotSource"/>.
-/// As on Windows, it only attaches and looks for now: starting an app and acting on it come with the agent loop.
+/// Sees and drives a running Mac app's window: its elements through the Accessibility API, its picture, mouse and keyboard through <see cref="IScreen"/>.
+/// Actions use the latest <see cref="GetScreenStateAsync"/>: its element ids, and its screenshot for mapping clicks, so read the screen right before acting.
+/// As on Windows, starting an app is not supported yet: it attaches to a running one.
 /// </summary>
-public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
+public sealed class MacAdapter(IScreen screen) : IAppAdapter
 {
     private const string WindowGone = "The app is closed or has no window.";
     private const string WindowMinimized = "The app's window is minimized. Restore it and try again.";
+    private const string WindowMoved = "The window moved since VERA last looked at it. Read it again.";
     private const string AccessibilityMissing =
         "VERA can't read app windows yet. In System Settings, open Privacy & Security > Accessibility, turn on the app you started VERA from (Terminal or Rider), then restart it.";
 
@@ -43,6 +45,11 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
 
     private IntPtr _app;
     private int _processId;
+
+    // The latest reading. Its window bounds in screenshot pixels are what clicks are mapped with; in points, what "the window moved" is checked against.
+    private ScreenState? _state;
+    private ScreenRect? _windowPixels;
+    private ScreenRect? _windowPoints;
 
     /// <summary>Attaches to <see cref="AppTarget.ProcessId"/>, the app the picker showed.</summary>
     /// <exception cref="NotSupportedException">The target has no process id.</exception>
@@ -88,11 +95,53 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
         return Task.Run(() => ReadWindowAsync(ct), ct);
     }
 
-    public Task ClickAsync(int elementId, CancellationToken ct) => throw ActingNotSupported();
+    /// <summary>Clicks the centre of the element's visible part, after bringing the app to the front.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The id is not an element of the latest reading.</exception>
+    /// <exception cref="InvalidOperationException">No reading yet, or the window is gone, minimized or moved, or VERA may not control the Mac.</exception>
+    public async Task ClickAsync(int elementId, CancellationToken ct)
+    {
+        var (state, window, _) = LatestReading();
+        var element = state.Elements.FirstOrDefault(e => e.Id >= 1 && e.Id == elementId)
+            ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
+        var point = ClickPoint.Of(element.Bounds, window)
+            ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");
 
-    public Task TypeAsync(int elementId, string text, CancellationToken ct) => throw ActingNotSupported();
+        await BeforeActingAsync(ct).ConfigureAwait(false);
+        await ActAsync(() => screen.ClickAsync(point.X, point.Y, ct: ct)).ConfigureAwait(false);
+    }
 
-    public Task PressKeyAsync(string keys, CancellationToken ct) => throw ActingNotSupported();
+    /// <summary>
+    /// Replaces the element's text: clicks it, selects all with Command+A, then types. Empty text clears it. The text is never logged.
+    /// </summary>
+    /// <inheritdoc cref="ClickAsync" path="/exception"/>
+    public async Task TypeAsync(int elementId, string text, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        await ClickAsync(elementId, ct).ConfigureAwait(false);
+        await ActAsync(async () =>
+        {
+            await screen.KeyAsync("cmd+a", ct: ct).ConfigureAwait(false);
+            if (text.Length == 0)
+            {
+                await screen.KeyAsync("delete", ct: ct).ConfigureAwait(false);
+            }
+            else
+            {
+                // The text may be a filled-in secret, so only its length is logged.
+                await screen.TypeTextAsync(text, new TypeTextOptions(Sensitive: true), ct).ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Presses a key or combo such as <c>Enter</c> or <c>Ctrl+S</c> (Command+S on a Mac) in the app, after bringing it to the front.</summary>
+    /// <exception cref="InvalidKeyComboException">The combo can't be parsed or isn't allowed. Nothing is pressed.</exception>
+    /// <exception cref="InvalidOperationException">No reading yet, or the window is gone, minimized or moved, or VERA may not control the Mac.</exception>
+    public async Task PressKeyAsync(string keys, CancellationToken ct)
+    {
+        _ = LatestReading();
+        await BeforeActingAsync(ct).ConfigureAwait(false);
+        await ActAsync(() => screen.KeyAsync(keys, ct: ct)).ConfigureAwait(false);
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -116,12 +165,7 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
             }
 
             // A screenshot copies what is on screen, so a window in front of the app would be sent to the model instead.
-            if (ReadBool(_app, "AXFrontmost") != true)
-            {
-                _ = MacNative.AXUIElementSetAttributeValue(_app, MacNative.Key("AXFrontmost"), MacNative.CfTrue());
-                _ = MacNative.AXUIElementPerformAction(window, MacNative.Key("AXRaise"));
-                await Task.Delay(RedrawTime, ct).ConfigureAwait(false);
-            }
+            await BringToFrontAsync(window, ct).ConfigureAwait(false);
 
             var bounds = ReadBounds(window) ?? throw new InvalidOperationException(WindowGone);
             var title = ReadString(window, "AXTitle") ?? "";
@@ -147,7 +191,10 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
 
             var frame = await screen.ScreenshotAreaAsync(bounds.X, bounds.Y, bounds.Width, bounds.Height, ct).ConfigureAwait(false);
             var scaled = candidates.ConvertAll(c => MacRoles.ToImagePixels(c, frame.Scale));
-            return new ScreenState(title, ElementNumbering.Number(title, MacRoles.ToImagePixels(bounds, frame.Scale), scaled), frame.Png, []);
+            var windowPixels = MacRoles.ToImagePixels(bounds, frame.Scale);
+            var state = new ScreenState(title, ElementNumbering.Number(title, windowPixels, scaled), frame.Png, []);
+            (_state, _windowPixels, _windowPoints) = (state, windowPixels, bounds);
+            return state;
         }
         catch (ScreenUnavailableException e)
         {
@@ -360,5 +407,64 @@ public sealed class MacAdapter(IScreenshotSource screen) : IAppAdapter
         }
     }
 
-    private static NotSupportedException ActingNotSupported() => new("Acting on the app comes with the agent loop.");
+    private (ScreenState State, ScreenRect WindowPixels, ScreenRect WindowPoints) LatestReading() =>
+        _state is { } state && _windowPixels is { } pixels && _windowPoints is { } points
+            ? (state, pixels, points)
+            : throw new InvalidOperationException("Read the screen first.");
+
+    // Before each action: the app comes to the front, and its window must still be where the latest reading saw it,
+    // since clicks are mapped with that reading's screenshot.
+    private Task BeforeActingAsync(CancellationToken ct) =>
+        Task.Run(
+            async () =>
+            {
+                var (_, _, readPoints) = LatestReading();
+                var window = CopyMainWindow();
+                if (window == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException(WindowGone);
+                }
+
+                try
+                {
+                    if (ReadBool(window, "AXMinimized") == true)
+                    {
+                        throw new InvalidOperationException(WindowMinimized);
+                    }
+
+                    await BringToFrontAsync(window, ct).ConfigureAwait(false);
+                    if (ReadBounds(window) != readPoints)
+                    {
+                        throw new InvalidOperationException(WindowMoved);
+                    }
+                }
+                finally
+                {
+                    MacNative.CFRelease(window);
+                }
+            },
+            ct);
+
+    private async Task BringToFrontAsync(IntPtr window, CancellationToken ct)
+    {
+        if (ReadBool(_app, "AXFrontmost") != true)
+        {
+            _ = MacNative.AXUIElementSetAttributeValue(_app, MacNative.Key("AXFrontmost"), MacNative.CfTrue());
+            _ = MacNative.AXUIElementPerformAction(window, MacNative.Key("AXRaise"));
+            await Task.Delay(RedrawTime, ct).ConfigureAwait(false);
+        }
+    }
+
+    // MacScreen reports a missing Accessibility permission as ScreenUnavailableException; callers get the same exception type as for reading.
+    private static async Task ActAsync(Func<Task> action)
+    {
+        try
+        {
+            await action().ConfigureAwait(false);
+        }
+        catch (ScreenUnavailableException e)
+        {
+            throw new InvalidOperationException(e.Message, e);
+        }
+    }
 }

@@ -17,6 +17,7 @@
     <!-- Same filtering and numbering as Windows. The Windows project can't be referenced from here, so the files are shared. -->
     <Compile Include="../Vera.Adapters.Desktop/ElementNumbering.cs" Link="Shared/ElementNumbering.cs" />
     <Compile Include="../Vera.Adapters.Desktop/RawElement.cs" Link="Shared/RawElement.cs" />
+    <Compile Include="../Vera.Adapters.Desktop/ClickPoint.cs" Link="Shared/ClickPoint.cs" />
   </ItemGroup>
 
   <ItemGroup>
