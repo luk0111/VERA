@@ -396,11 +396,11 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine($"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/]");
     }
 
-    // Asked before clicking an element with a risky name. The app is in front, so the tester has to come back to this window first.
+    // Asked before clicking, or dropping onto, an element with a risky name. The app is in front, so the tester has to come back to this window first.
     private static bool ApproveRisky(UiElement element)
     {
-        AnsiConsole.MarkupLine($"[yellow]The next click is on \"{Markup.Escape(element.Name)}\", which may change or send something.[/]");
-        return AnsiConsole.Confirm("[yellow]Click it?[/] [grey](click back into this window to answer)[/]", defaultValue: false);
+        AnsiConsole.MarkupLine($"[yellow]The next click or drop is on \"{Markup.Escape(element.Name)}\", which may change or send something.[/]");
+        return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](click back into this window to answer)[/]", defaultValue: false);
     }
 
     private static void ShowTop(AppSettings settings, RunningApp app)
@@ -421,6 +421,9 @@ internal static class StepsScreen
         table.AddRow("click <what>", Markup.Escape("click the search button"));
         table.AddRow("type \"<text>\" into <what>", Markup.Escape("type \"cats\" into the search box"));
         table.AddRow("press <keys>", Markup.Escape("press enter, press ctrl+s"));
+        table.AddRow("scroll <up|down|left|right> <notches> in <what>", Markup.Escape("scroll down 3 in the results list"));
+        table.AddRow("drag <what> to <where>", Markup.Escape("drag the report file to the Documents folder"));
+        table.AddRow("hover over <what>", Markup.Escape("hover over the help icon"));
         table.AddRow("expect <what>", Markup.Escape("expect the results list"));
         table.AddRow("expect <what> contains \"<text>\"", Markup.Escape("expect the search box contains \"cats\""));
         table.AddRow("expect title contains \"<text>\"", Markup.Escape("expect title contains \"cats\""));

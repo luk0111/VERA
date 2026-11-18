@@ -79,13 +79,53 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     public async Task ClickAsync(int elementId, CancellationToken ct)
     {
         var (state, window) = LatestReading();
-        var element = state.Elements.FirstOrDefault(e => e.Id >= 1 && e.Id == elementId)
-            ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
-        var point = ClickPoint.Of(element.Bounds, window)
-            ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");
+        var point = PointOf(state, window, elementId);
 
         await BeforeActingAsync(window, ct).ConfigureAwait(false);
         await ActAsync(() => screen.ClickAsync(point.X, point.Y, ct: ct)).ConfigureAwait(false);
+    }
+
+    /// <summary>Scrolls the wheel over the centre of the element's visible part, after bringing the window to the front.</summary>
+    /// <inheritdoc cref="ClickAsync" path="/exception"/>
+    public async Task ScrollAsync(int elementId, int deltaY, int deltaX, CancellationToken ct)
+    {
+        var (state, window) = LatestReading();
+        var point = PointOf(state, window, elementId);
+
+        await BeforeActingAsync(window, ct).ConfigureAwait(false);
+        await ActAsync(() => screen.ScrollAsync(point.X, point.Y, deltaY, deltaX, ct)).ConfigureAwait(false);
+    }
+
+    /// <summary>Drags from the centre of one element's visible part to the other's, after bringing the window to the front.</summary>
+    /// <inheritdoc cref="ClickAsync" path="/exception"/>
+    public async Task DragAsync(int fromElementId, int toElementId, CancellationToken ct)
+    {
+        var (state, window) = LatestReading();
+        var from = PointOf(state, window, fromElementId);
+        var to = PointOf(state, window, toElementId);
+
+        await BeforeActingAsync(window, ct).ConfigureAwait(false);
+        await ActAsync(() => screen.DragAsync(from.X, from.Y, to.X, to.Y, ct: ct)).ConfigureAwait(false);
+    }
+
+    /// <summary>Glides the pointer onto the centre of the element's visible part and rests there, after bringing the window to the front.</summary>
+    /// <inheritdoc cref="ClickAsync" path="/exception"/>
+    public async Task HoverAsync(int elementId, CancellationToken ct)
+    {
+        var (state, window) = LatestReading();
+        var point = PointOf(state, window, elementId);
+
+        await BeforeActingAsync(window, ct).ConfigureAwait(false);
+        await ActAsync(() => screen.MoveAsync(point.X, point.Y, ct)).ConfigureAwait(false);
+    }
+
+    // The point to act on for an element of the latest reading, in its screenshot's pixels.
+    private static (int X, int Y) PointOf(ScreenState state, ScreenRect window, int elementId)
+    {
+        var element = state.Elements.FirstOrDefault(e => e.Id >= 1 && e.Id == elementId)
+            ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
+        return ClickPoint.Of(element.Bounds, window)
+            ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");
     }
 
     /// <summary>Replaces the element's text: clicks it, selects all with Ctrl+A, then types. Empty text clears it. The text is never logged.</summary>

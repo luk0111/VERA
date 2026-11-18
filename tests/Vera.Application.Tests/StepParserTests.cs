@@ -56,6 +56,28 @@ public sealed class StepParserTests
         StepParser.Parse(@"type ""say \""hi\"" C:\\temp"" into the note").ShouldBe(new TypeStep(@"say ""hi"" C:\temp", "the note"));
 
     [Theory]
+    [InlineData("scroll down 3 in the results list", ScrollDirection.Down, 3, "the results list")]
+    [InlineData("Scroll UP 10 IN the page", ScrollDirection.Up, 10, "the page")]
+    [InlineData("scroll left 1 in \"the table\"", ScrollDirection.Left, 1, "the table")]
+    [InlineData("scroll right 50 in the timeline", ScrollDirection.Right, 50, "the timeline")]
+    public void A_scroll_step_has_a_direction_notches_and_an_element(string line, ScrollDirection direction, int notches, string target) =>
+        StepParser.Parse(line).ShouldBe(new ScrollStep(direction, notches, target));
+
+    [Theory]
+    [InlineData("drag the report file to the Documents folder", "the report file", "the Documents folder")]
+    [InlineData("drag the Go to button to the toolbar", "the Go to button", "the toolbar")]
+    [InlineData("drag the file to \"the Go to button\"", "the file", "the Go to button")]
+    [InlineData("DRAG \"card 1\" TO the Done column", "card 1", "the Done column")]
+    public void A_drag_step_splits_at_the_last_to_outside_quotes(string line, string source, string destination) =>
+        StepParser.Parse(line).ShouldBe(new DragStep(source, destination));
+
+    [Theory]
+    [InlineData("hover over the help icon", "the help icon")]
+    [InlineData("Hover Over \"Recent\"", "Recent")]
+    public void A_hover_step_needs_over(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new HoverStep(target));
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("# log in first")]
@@ -70,12 +92,25 @@ public sealed class StepParserTests
     [InlineData("expect the results list")]
     [InlineData("expect the next link contains \"2\"")]
     [InlineData("expect title contains \"cats\"")]
+    [InlineData("scroll down 3 in the results list")]
+    [InlineData("drag the Go to button to the toolbar")]
+    [InlineData("drag the file to \"the Go to button\"")]
+    [InlineData("hover over the help icon")]
     public void A_step_is_shown_back_as_it_can_be_written(string line) =>
         StepParser.Parse(StepParser.Parse(line)!.ToString()).ShouldBe(StepParser.Parse(line));
 
     [Theory]
-    [InlineData("open the search box", "Unknown command \"open\". A step starts with click, type, press or expect.")]
-    [InlineData("\"Search\"", "A step starts with click, type, press or expect.")]
+    [InlineData("open the search box", "Unknown command \"open\". A step starts with click, type, press, scroll, drag, hover or expect.")]
+    [InlineData("\"Search\"", "A step starts with click, type, press, scroll, drag, hover or expect.")]
+    [InlineData("scroll down in the list", "Write scroll, a direction (up, down, left or right), how many notches, then \"in\" and the element, e.g. scroll down 3 in the results list.")]
+    [InlineData("scroll 3 in the list", "Write scroll, a direction (up, down, left or right), how many notches, then \"in\" and the element, e.g. scroll down 3 in the results list.")]
+    [InlineData("scroll down 3", "Write scroll, a direction (up, down, left or right), how many notches, then \"in\" and the element, e.g. scroll down 3 in the results list.")]
+    [InlineData("scroll down 0 in the list", "Scroll between 1 and 50 notches, e.g. scroll down 3 in the results list.")]
+    [InlineData("scroll down 51 in the list", "Scroll between 1 and 50 notches, e.g. scroll down 3 in the results list.")]
+    [InlineData("drag the file", "Say what to drag and where to drop it with \"to\", e.g. drag the report file to the Documents folder.")]
+    [InlineData("drag the file to \"\"", "Say where to drop it, e.g. drag the report file to the Documents folder.")]
+    [InlineData("hover the help icon", "Write hover over and the element, e.g. hover over the help icon.")]
+    [InlineData("hover over", "Say what to hover over, e.g. hover over the help icon.")]
     [InlineData("click", "Say what to click, e.g. click the search button.")]
     [InlineData("click \"\"", "Say what to click, e.g. click the search button.")]
     [InlineData("type cats into the search box", "Put the text in quotes, e.g. type \"cats\" into the search box.")]

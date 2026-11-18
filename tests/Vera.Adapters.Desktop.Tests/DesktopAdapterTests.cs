@@ -45,6 +45,9 @@ public sealed class DesktopAdapterTests
         (await Should.ThrowAsync<InvalidOperationException>(() => adapter.ClickAsync(1, Ct))).Message.ShouldBe("Read the screen first.");
         (await Should.ThrowAsync<InvalidOperationException>(() => adapter.TypeAsync(1, "hi", Ct))).Message.ShouldBe("Read the screen first.");
         (await Should.ThrowAsync<InvalidOperationException>(() => adapter.PressKeyAsync("enter", Ct))).Message.ShouldBe("Read the screen first.");
+        (await Should.ThrowAsync<InvalidOperationException>(() => adapter.ScrollAsync(1, 3, 0, Ct))).Message.ShouldBe("Read the screen first.");
+        (await Should.ThrowAsync<InvalidOperationException>(() => adapter.DragAsync(1, 2, Ct))).Message.ShouldBe("Read the screen first.");
+        (await Should.ThrowAsync<InvalidOperationException>(() => adapter.HoverAsync(1, Ct))).Message.ShouldBe("Read the screen first.");
         screen.ReceivedCalls().ShouldBeEmpty();
     }
 
