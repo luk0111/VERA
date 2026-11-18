@@ -168,7 +168,7 @@ public sealed partial class ChatSession
 
         var actions = isWindows
             ? "On this computer VERA can click elements, type text and press keys in the selected app."
-            : "On macOS, VERA can read the selected app's window but can't click or type in it yet, so a test can be described here but not run.";
+            : "On this computer VERA can click elements, type text and press keys in the selected app. Key combos are written as on Windows: ctrl+s and cmd+s both press Command+S.";
         return $"{actions}\n<app>\n{json}\n</app>";
     }
 

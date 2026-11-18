@@ -7,7 +7,7 @@ How VERA sees and controls the app under test. It only works with pixels on the 
 - Agent and adapter code reference `Vera.Input.Abstractions` only. Only the wiring code references `Vera.Input`: `Vera.Application` (it calls `AddVeraInput`) and the tools.
 - Coordinates are pixels in the most recent screenshot. Out-of-range values throw and are never moved to the edge.
 - `ScreenUnavailableException` means stop the run. Retrying won't help.
-- Key combos are written like `ctrl+s` or `shift+tab` (any case). The key names are in `src/Vera.Input/Injection/KeyCombo.cs`. `win+l` and `ctrl+alt+delete` are refused.
+- Key combos are written like `ctrl+s` or `shift+tab` (any case). The key names are in `src/Vera.Input/Injection/KeyCombo.cs`. `win+l` and `ctrl+alt+delete` are refused. `cmd` means `ctrl` on Windows, and on macOS both press Command (`src/Vera.Adapters.Mac/MacKeyCombo.cs`), so one saved step works on both.
 - Methods not built yet throw `NotImplementedException`, naming the milestone.
 - `DesktopAdapter` acts through `IScreen`. It clicks the centre of an element's visible part, mapped with its latest window screenshot, so read the screen right before acting. If the window moved since then, it refuses. Typing clicks the field, presses Ctrl+A, then types, and the text is logged as sensitive (length only).
 - An exe that uses `Vera.Input` needs a Per-Monitor V2 DPI manifest, a `VeraInput` config section and logging. Test projects that read windows need the manifest too (`Vera.Adapters.Desktop.Tests` and `Vera.Application.Tests` have one), or window bounds come out scaled until the first screenshot.
