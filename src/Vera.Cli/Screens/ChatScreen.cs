@@ -5,6 +5,7 @@ using System.Text;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Vera.Application;
+using Vera.Files;
 using Vera.Llm;
 
 namespace Vera.Cli.Screens;
@@ -53,6 +54,7 @@ internal static class ChatScreen
 
         AnsiConsole.MarkupLine(
             $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
+        AnsiConsole.MarkupLine($"[grey]Attach a text or PDF file: [teal]{Markup.Escape(FileCommand.Usage)}[/][/]");
         AnsiConsole.WriteLine();
 
         while (true)
@@ -91,11 +93,24 @@ internal static class ChatScreen
                 continue;
             }
 
+            if (FileCommand.IsFileCommand(message))
+            {
+                // With a question, the file is attached and the question is sent as the next message.
+                var question = await AttachFileAsync(session, message);
+                if (question is null)
+                {
+                    AnsiConsole.WriteLine();
+                    continue;
+                }
+
+                message = question;
+            }
+
             // A mistyped command such as "/refesh" would go to the model, which may pretend it ran.
             if (message.StartsWith('/') && !message.Contains(' ', StringComparison.Ordinal))
             {
                 AnsiConsole.MarkupLine(
-                    $"[yellow]{Markup.Escape(message)} isn't a command.[/] [grey]Commands: [teal]{RefreshCommand}[/], [teal]{ElementsCommand}[/], [teal]{ClearCommand}[/], [teal]{ExitCommand}[/].[/]");
+                    $"[yellow]{Markup.Escape(message)} isn't a command.[/] [grey]Commands: [teal]{RefreshCommand}[/], [teal]{ElementsCommand}[/], [teal]{ClearCommand}[/], [teal]{FileCommand.Name}[/], [teal]{ExitCommand}[/].[/]");
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -110,6 +125,34 @@ internal static class ChatScreen
 
             await StreamReplyAsync(settings, app, session, message);
             AnsiConsole.WriteLine();
+        }
+    }
+
+    // Returns the question to send next, or null when there is nothing to send: the tester gave no question, or the file was not attached.
+    private static async Task<string?> AttachFileAsync(ChatSession session, string message)
+    {
+        if (!FileCommand.TryParse(message, out var command, out var problem))
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(problem)}[/] [grey]Use: {Markup.Escape(FileCommand.Usage)}[/]");
+            return null;
+        }
+
+        try
+        {
+            var file = await AnsiConsole.Status()
+                .StartAsync("Reading file…", _ => session.AttachFileAsync(command.Path, command.Pages, CancellationToken.None));
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(AttachedFileSummary.Describe(file))}[/]");
+            return command.Question;
+        }
+        catch (FileAccessException e)
+        {
+            ShowErrorPanel(e.Message);
+            if (e.Error == FileAccessError.NotFound)
+            {
+                AnsiConsole.MarkupLine("[grey]A path with spaces needs quotes, for example: /file \"C:\\my folder\\spec.pdf\"[/]");
+            }
+
+            return null;
         }
     }
 
@@ -281,12 +324,15 @@ internal static class ChatScreen
                 break;
         }
 
+        ShowErrorPanel(text);
+    }
+
+    private static void ShowErrorPanel(string text) =>
         AnsiConsole.Write(new Panel(new Text(text, new Style(Color.Red)))
             .Header("[red]Error[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Red)
             .Padding(1, 0));
-    }
 
     // Stores the new state; when it changed, prints the session panel again so the status there is current.
     private static void SetConnection(AppSettings settings, RunningApp app, ChatSession session, ConnectionState state, string detail)
