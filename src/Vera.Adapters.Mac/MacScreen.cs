@@ -16,6 +16,12 @@ public sealed partial class MacScreen : IScreen
     /// <summary>The most clicks one call can make: a triple click selects a line.</summary>
     internal const int MaxClicks = 3;
 
+    /// <summary>How many small moves a drag or a hover glide makes, <c>BetweenMoveSteps</c> apart. The same as on Windows.</summary>
+    internal const int GlideSteps = 15;
+
+    /// <summary>The most wheel notches one scroll can turn each way, so a wrong number can't scroll for minutes.</summary>
+    internal const int MaxNotches = 50;
+
     private const string AccessibilityMissing =
         "VERA can't control the mouse and keyboard yet. In System Settings, open Privacy & Security > Accessibility, turn on the app you started VERA from (Terminal or Rider), then restart it.";
 
@@ -49,11 +55,20 @@ public sealed partial class MacScreen : IScreen
     /// if a Mac app needs others.
     /// </summary>
     internal sealed record MacDelays(
-        TimeSpan AfterMove, TimeSpan MouseDownUp, TimeSpan BetweenClicks, TimeSpan AfterClick, TimeSpan BetweenKeys, TimeSpan AfterType)
+        TimeSpan AfterMove,
+        TimeSpan MouseDownUp,
+        TimeSpan BetweenClicks,
+        TimeSpan AfterClick,
+        TimeSpan BetweenKeys,
+        TimeSpan AfterType,
+        TimeSpan BetweenNotches,
+        TimeSpan BetweenMoveSteps,
+        TimeSpan HoverDwell)
     {
-        public static readonly MacDelays Default = new(Ms(50), Ms(50), Ms(80), Ms(300), Ms(20), Ms(200));
+        public static readonly MacDelays Default = new(Ms(50), Ms(50), Ms(80), Ms(300), Ms(20), Ms(200), Ms(50), Ms(15), Ms(500));
 
-        public static readonly MacDelays None = new(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
+        public static readonly MacDelays None = new(
+            TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
 
         private static TimeSpan Ms(int milliseconds) => TimeSpan.FromMilliseconds(milliseconds);
     }
@@ -96,13 +111,15 @@ public sealed partial class MacScreen : IScreen
         return frame;
     }
 
+    /// <summary>Hovers: glides the pointer from where it is to the point, then waits <c>HoverDwell</c> so tooltips show.</summary>
     public async Task MoveAsync(int x, int y, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        var (screenX, screenY) = Target(x, y);
-        LogMove(_logger, x, y, screenX, screenY);
-        _sink.Send(new MacInputEvent.MouseMove(screenX, screenY));
-        await Delay(_delays.AfterMove, ct).ConfigureAwait(false);
+        var to = Target(x, y);
+        LogMove(_logger, x, y, to.X, to.Y);
+        var from = _sink.Cursor() ?? to;
+        await GlideAsync(from, to, p => new MacInputEvent.MouseMove(p.X, p.Y), ct).ConfigureAwait(false);
+        await Delay(_delays.HoverDwell, ct).ConfigureAwait(false);
     }
 
     /// <summary>Moves there, then presses and releases <paramref name="button"/> <paramref name="clicks"/> times. A button pressed when the click stops is released.</summary>
@@ -137,11 +154,115 @@ public sealed partial class MacScreen : IScreen
         await Delay(_delays.AfterClick, ct).ConfigureAwait(false);
     }
 
-    public Task ScrollAsync(int x, int y, int deltaY, int deltaX = 0, CancellationToken ct = default) =>
-        throw new NotImplementedException("Scrolling comes in Milestone 7.");
+    /// <summary>
+    /// Moves there, then turns the wheel one notch (a line) at a time, <c>BetweenNotches</c> apart: first <paramref name="deltaY"/>
+    /// notches (positive scrolls down), then <paramref name="deltaX"/> (positive scrolls right).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The point is outside the screenshot, both deltas are 0, or one is beyond 50 notches. Nothing moves.</exception>
+    public async Task ScrollAsync(int x, int y, int deltaY, int deltaX = 0, CancellationToken ct = default)
+    {
+        CheckScroll(deltaY, deltaX);
+        ct.ThrowIfCancellationRequested();
+        var (screenX, screenY) = Target(x, y);
+        LogScroll(_logger, deltaY, deltaX, x, y, screenX, screenY);
 
-    public Task DragAsync(int fromX, int fromY, int toX, int toY, MouseButton button = MouseButton.Left, CancellationToken ct = default) =>
-        throw new NotImplementedException("Dragging comes in Milestone 7.");
+        _sink.Send(new MacInputEvent.MouseMove(screenX, screenY));
+        await Delay(_delays.AfterMove, ct).ConfigureAwait(false);
+
+        // macOS counts up and left as positive, the other way round from VERA.
+        var notches = Enumerable.Repeat(new MacInputEvent.Scroll(-Math.Sign(deltaY), 0), Math.Abs(deltaY))
+            .Concat(Enumerable.Repeat(new MacInputEvent.Scroll(0, -Math.Sign(deltaX)), Math.Abs(deltaX)))
+            .ToList();
+        for (var i = 0; i < notches.Count; i++)
+        {
+            if (i > 0)
+            {
+                await Delay(_delays.BetweenNotches, ct).ConfigureAwait(false);
+            }
+
+            _sink.Send(notches[i]);
+        }
+
+        await Delay(_delays.AfterClick, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Presses <paramref name="button"/> at the start, glides to the end in small drag moves (so apps notice the drag), waits so the
+    /// target sees the pointer, then releases. The button is released even if the drag stops halfway.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">A point is outside the screenshot. Nothing moves.</exception>
+    public async Task DragAsync(int fromX, int fromY, int toX, int toY, MouseButton button = MouseButton.Left, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var to = Area().ToScreen(toX, toY);
+        var from = Target(fromX, fromY);
+        LogDrag(_logger, button, fromX, fromY, toX, toY, from.X, from.Y, to.X, to.Y);
+
+        _sink.Send(new MacInputEvent.MouseMove(from.X, from.Y));
+        await Delay(_delays.AfterMove, ct).ConfigureAwait(false);
+        _sink.Send(new MacInputEvent.MouseButtonEvent(from.X, from.Y, button, Down: true, 1));
+        var last = from;
+        try
+        {
+            await Delay(_delays.MouseDownUp, ct).ConfigureAwait(false);
+            await GlideAsync(
+                from,
+                to,
+                p =>
+                {
+                    last = p;
+                    return new MacInputEvent.MouseDrag(p.X, p.Y, button);
+                },
+                ct).ConfigureAwait(false);
+            await Delay(_delays.MouseDownUp, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sink.Send(new MacInputEvent.MouseButtonEvent(last.X, last.Y, button, Down: false, 1));
+        }
+
+        await Delay(_delays.AfterClick, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The points of a glide: <see cref="GlideSteps"/> moves, evenly spaced, the last one exactly on <paramref name="to"/>.</summary>
+    internal static IEnumerable<(double X, double Y)> Glide((double X, double Y) from, (double X, double Y) to)
+    {
+        for (var i = 1; i <= GlideSteps; i++)
+        {
+            yield return i == GlideSteps
+                ? to
+                : (from.X + ((to.X - from.X) * i / GlideSteps), from.Y + ((to.Y - from.Y) * i / GlideSteps));
+        }
+    }
+
+    /// <exception cref="ArgumentOutOfRangeException">Both are 0, or one is beyond <see cref="MaxNotches"/>.</exception>
+    private static void CheckScroll(int deltaY, int deltaX)
+    {
+        if (deltaY == 0 && deltaX == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(deltaY), "Scroll by at least one notch.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(Math.Abs(deltaY), MaxNotches, nameof(deltaY));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(Math.Abs(deltaX), MaxNotches, nameof(deltaX));
+    }
+
+    private async Task GlideAsync(
+        (double X, double Y) from, (double X, double Y) to, Func<(double X, double Y), MacInputEvent> step, CancellationToken ct)
+    {
+        var first = true;
+        foreach (var point in Glide(from, to))
+        {
+            if (!first)
+            {
+                await Delay(_delays.BetweenMoveSteps, ct).ConfigureAwait(false);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            _sink.Send(step(point));
+            first = false;
+        }
+    }
 
     /// <summary>Types one character at a time as text, so any language or emoji arrives as written. <c>\n</c> presses Return, <c>\t</c> Tab, <c>\r</c> is skipped.</summary>
     public async Task TypeTextAsync(string text, TypeTextOptions? options = null, CancellationToken ct = default)
@@ -310,15 +431,17 @@ public sealed partial class MacScreen : IScreen
     /// <summary>Maps a point in the latest screenshot to screen points, after checking that the mouse can be controlled.</summary>
     private (double X, double Y) Target(int x, int y)
     {
-        FrameArea area;
-        lock (_lock)
-        {
-            area = _latest ?? throw new InvalidOperationException("Take a screenshot first: clicks are given in its pixels.");
-        }
-
-        var point = area.ToScreen(x, y);
+        var point = Area().ToScreen(x, y);
         EnsureCanControl();
         return point;
+    }
+
+    private FrameArea Area()
+    {
+        lock (_lock)
+        {
+            return _latest ?? throw new InvalidOperationException("Take a screenshot first: clicks are given in its pixels.");
+        }
     }
 
     private void EnsureCanControl()
@@ -335,7 +458,16 @@ public sealed partial class MacScreen : IScreen
     [LoggerMessage(Level = LogLevel.Information, Message = "Screenshot {Sequence}: {Width}×{Height} at {Left},{Top} (points)")]
     private static partial void LogCaptured(ILogger logger, long sequence, int width, int height, double left, double top);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Move to {X},{Y} in the screenshot → {ScreenX},{ScreenY} on screen (points)")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scroll {DeltaY} down, {DeltaX} right at {X},{Y} in the screenshot → {ScreenX},{ScreenY} on screen (points)")]
+    private static partial void LogScroll(ILogger logger, int deltaY, int deltaX, int x, int y, double screenX, double screenY);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Drag {Button} from {FromX},{FromY} to {ToX},{ToY} in the screenshot → {ScreenFromX},{ScreenFromY} to {ScreenToX},{ScreenToY} on screen (points)")]
+    private static partial void LogDrag(
+        ILogger logger, MouseButton button, int fromX, int fromY, int toX, int toY, double screenFromX, double screenFromY, double screenToX, double screenToY);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Hover at {X},{Y} in the screenshot → {ScreenX},{ScreenY} on screen (points)")]
     private static partial void LogMove(ILogger logger, int x, int y, double screenX, double screenY);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Click {Button} ×{Clicks} at {X},{Y} in the screenshot → {ScreenX},{ScreenY} on screen (points)")]

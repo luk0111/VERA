@@ -142,6 +142,101 @@ public sealed class MacScreenTests
         _sink.Events.ShouldBe([new Key(Command, Down: true, MacKeyCombo.CommandFlag), new Key(Command, Down: false, 0)]);
     }
 
+    [Fact]
+    public async Task Scrolling_down_and_right_turns_the_mac_wheels_the_other_way()
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(100, 50, 300, 200, Ct);
+
+        await screen.ScrollAsync(200, 100, deltaY: 2, deltaX: 1, Ct);
+
+        _sink.Events.ShouldBe([new MouseMove(200, 100), new Scroll(-1, 0), new Scroll(-1, 0), new Scroll(0, -1)]);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(51, 0)]
+    [InlineData(0, -51)]
+    public async Task A_scroll_of_nothing_or_too_much_throws_and_sends_nothing(int deltaY, int deltaX)
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(0, 0, 300, 200, Ct);
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => screen.ScrollAsync(1, 1, deltaY, deltaX, Ct));
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_drag_presses_at_the_start_drags_and_releases_exactly_at_the_end()
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(100, 50, 300, 200, Ct);
+
+        await screen.DragAsync(0, 0, 200, 100, MouseButton.Left, Ct);
+
+        _sink.Events[0].ShouldBe(new MouseMove(100, 50));
+        _sink.Events[1].ShouldBe(new MouseButtonEvent(100, 50, MouseButton.Left, Down: true, 1));
+        var drags = _sink.Events.Skip(2).Take(MacScreen.GlideSteps).ToList();
+        drags.ShouldAllBe(e => e is MouseDrag);
+        drags[^1].ShouldBe(new MouseDrag(200, 100, MouseButton.Left));
+        _sink.Events[^1].ShouldBe(new MouseButtonEvent(200, 100, MouseButton.Left, Down: false, 1));
+        _sink.Events.Count.ShouldBe(MacScreen.GlideSteps + 3);
+    }
+
+    [Fact]
+    public async Task A_drag_to_a_point_outside_the_screenshot_throws_and_sends_nothing()
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(0, 0, 300, 200, Ct);
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => screen.DragAsync(0, 0, 600, 0, ct: Ct));
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_drag_stopped_halfway_releases_the_button_where_it_got_to()
+    {
+        var screen = new MacScreen(
+            _capture, _sink, () => true, MacScreen.MacDelays.None with { BetweenMoveSteps = TimeSpan.FromMilliseconds(15) }, new FakeTimeProvider(), NullLogger.Instance);
+        await screen.ScreenshotAreaAsync(0, 0, 300, 200, Ct);
+        using var stop = new CancellationTokenSource();
+
+        var drag = screen.DragAsync(0, 0, 300, 0, MouseButton.Left, stop.Token);
+        var reached = _sink.Events.OfType<MouseDrag>().Single(); // The first step, then waiting.
+        await stop.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => drag);
+        _sink.Events[^1].ShouldBe(new MouseButtonEvent(reached.X, reached.Y, MouseButton.Left, Down: false, 1));
+    }
+
+    [Fact]
+    public async Task A_hover_glides_from_the_pointer_to_the_point()
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(100, 50, 300, 200, Ct);
+        _sink.Pointer = (400, 250);
+
+        await screen.MoveAsync(0, 0, Ct);
+
+        _sink.Events.Count.ShouldBe(MacScreen.GlideSteps);
+        _sink.Events[0].ShouldBe(new MouseMove(380, 250 - (200.0 / MacScreen.GlideSteps)));
+        _sink.Events[^1].ShouldBe(new MouseMove(100, 50));
+    }
+
+    [Fact]
+    public async Task A_hover_jumps_when_macos_will_not_say_where_the_pointer_is()
+    {
+        var screen = NewScreen();
+        await screen.ScreenshotAreaAsync(100, 50, 300, 200, Ct);
+        _sink.Pointer = null;
+
+        await screen.MoveAsync(0, 0, Ct);
+
+        _sink.Events.ShouldAllBe(e => e == new MouseMove(100, 50));
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     private MacScreen NewScreen() =>
         new(_capture, _sink, () => _allowed, MacScreen.MacDelays.None, TimeProvider.System, NullLogger.Instance);
 
@@ -149,7 +244,11 @@ public sealed class MacScreenTests
     {
         public List<MacInputEvent> Events { get; } = [];
 
+        public (double X, double Y)? Pointer { get; set; } = (0, 0);
+
         public void Send(MacInputEvent e) => Events.Add(e);
+
+        public (double X, double Y)? Cursor() => Pointer;
     }
 
     /// <summary>Pretends to be a Retina screen: two pixels per point.</summary>

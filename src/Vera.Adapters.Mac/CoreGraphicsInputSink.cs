@@ -23,6 +23,10 @@ internal sealed partial class CoreGraphicsInputSink : IMacInputSink
     private const uint MouseMoved = 5;
     private const uint OtherMouseDown = 25;
     private const uint OtherMouseUp = 26;
+    private const uint LeftMouseDragged = 6;
+    private const uint RightMouseDragged = 7;
+    private const uint OtherMouseDragged = 27;
+    private const uint ScrollUnitLine = 1;
 
     /// <summary>
     /// The modifier flags VERA sets itself. Other flags macOS puts on a new key event (e.g. "function key" on the arrows) are kept.
@@ -49,6 +53,8 @@ internal sealed partial class CoreGraphicsInputSink : IMacInputSink
             {
                 MacInputEvent.MouseMove m => CGEventCreateMouseEvent(source, MouseMoved, Point(m.X, m.Y), 0),
                 MacInputEvent.MouseButtonEvent b => MouseButton(source, b),
+                MacInputEvent.MouseDrag d => CGEventCreateMouseEvent(source, DragType(d.Button), Point(d.X, d.Y), ButtonNumber(d.Button)),
+                MacInputEvent.Scroll s => CGEventCreateScrollWheelEvent2(source, ScrollUnitLine, 2, s.Vertical, s.Horizontal, 0),
                 MacInputEvent.Key k => Key(source, k),
                 MacInputEvent.Text t => Text(source, t),
                 _ => throw new ArgumentOutOfRangeException(nameof(e), e, "Unknown input event."),
@@ -76,6 +82,41 @@ internal sealed partial class CoreGraphicsInputSink : IMacInputSink
             }
         }
     }
+
+    public (double X, double Y)? Cursor()
+    {
+        var cgEvent = CGEventCreate(IntPtr.Zero);
+        if (cgEvent == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            var point = CGEventGetLocation(cgEvent);
+            return (point.X, point.Y);
+        }
+        finally
+        {
+            MacNative.CFRelease(cgEvent);
+        }
+    }
+
+    private static uint DragType(Vera.Input.MouseButton button) => button switch
+    {
+        Vera.Input.MouseButton.Left => LeftMouseDragged,
+        Vera.Input.MouseButton.Right => RightMouseDragged,
+        Vera.Input.MouseButton.Middle => OtherMouseDragged,
+        _ => throw new ArgumentOutOfRangeException(nameof(button), button, "Unknown mouse button."),
+    };
+
+    private static uint ButtonNumber(Vera.Input.MouseButton button) => button switch
+    {
+        Vera.Input.MouseButton.Left => 0,
+        Vera.Input.MouseButton.Right => 1,
+        Vera.Input.MouseButton.Middle => 2,
+        _ => throw new ArgumentOutOfRangeException(nameof(button), button, "Unknown mouse button."),
+    };
 
     private static IntPtr MouseButton(IntPtr source, MacInputEvent.MouseButtonEvent b)
     {
@@ -145,4 +186,15 @@ internal sealed partial class CoreGraphicsInputSink : IMacInputSink
 
     [LibraryImport(CoreGraphicsLibrary)]
     private static partial void CGEventPost(uint tap, IntPtr cgEvent);
+
+    /// <summary>The fixed-argument version of <c>CGEventCreateScrollWheelEvent</c>, whose "..." arguments .NET can't pass reliably on Apple silicon.</summary>
+    [LibraryImport(CoreGraphicsLibrary)]
+    private static partial IntPtr CGEventCreateScrollWheelEvent2(IntPtr source, uint units, uint wheelCount, int wheel1, int wheel2, int wheel3);
+
+    /// <summary>An empty event; its location is where the pointer is now.</summary>
+    [LibraryImport(CoreGraphicsLibrary)]
+    private static partial IntPtr CGEventCreate(IntPtr source);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    private static partial CgPoint CGEventGetLocation(IntPtr cgEvent);
 }

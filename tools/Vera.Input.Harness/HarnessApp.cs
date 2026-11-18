@@ -33,6 +33,9 @@ internal static class HarnessApp
                 config.AddCommand<MapCommand>("map").WithDescription("Shows where a point in a screenshot lands on the screen. Nothing moves.");
                 config.AddCommand<MouseCommand>("mouse").WithDescription("Shows live where the mouse is, on the screen and in a screenshot.");
                 config.AddCommand<ClickCommand>("click").WithDescription("Takes a screenshot, clicks a point in it and checks where the cursor landed.");
+                config.AddCommand<ScrollCommand>("scroll").WithDescription("Takes a screenshot and scrolls the window under a point in it by wheel notches.");
+                config.AddCommand<DragCommand>("drag").WithDescription("Takes a screenshot and drags from one point in it to another.");
+                config.AddCommand<HoverCommand>("hover").WithDescription("Takes a screenshot, hovers over a point in it, then saves a screenshot to see the tooltip.");
                 config.AddCommand<TypeCommand>("type").WithDescription("Types text into the window in front, after a countdown.");
                 config.AddCommand<KeysCommand>("keys").WithDescription("Presses a key or combo (e.g. ctrl+s) in the window in front, after a countdown.");
             });

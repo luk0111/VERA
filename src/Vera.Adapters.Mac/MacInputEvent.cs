@@ -10,6 +10,15 @@ internal abstract record MacInputEvent
     /// <param name="ClickState">1 for a single click, 2 for the second click of a double click, and so on. macOS needs it to see a double click.</param>
     public sealed record MouseButtonEvent(double X, double Y, MouseButton Button, bool Down, int ClickState) : MacInputEvent;
 
+    /// <summary>A move with <paramref name="Button"/> held: macOS tells apps about a drag only through these, not plain moves.</summary>
+    public sealed record MouseDrag(double X, double Y, MouseButton Button) : MacInputEvent;
+
+    /// <summary>
+    /// One wheel notch (a line) at wherever the pointer is. macOS counts <paramref name="Vertical"/> positive up and
+    /// <paramref name="Horizontal"/> positive left.
+    /// </summary>
+    public sealed record Scroll(int Vertical, int Horizontal) : MacInputEvent;
+
     /// <param name="Flags">The modifiers held while this key event happens (Command, Shift, Option).</param>
     public sealed record Key(ushort KeyCode, bool Down, ulong Flags) : MacInputEvent;
 
@@ -22,4 +31,7 @@ internal interface IMacInputSink
 {
     /// <exception cref="InputRejectedException">macOS could not make the event.</exception>
     void Send(MacInputEvent e);
+
+    /// <summary>Where the pointer is now, in screen points, or null if macOS won't say.</summary>
+    (double X, double Y)? Cursor();
 }

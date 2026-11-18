@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 
 using Microsoft.Extensions.Logging;
@@ -17,7 +18,6 @@ namespace Vera.Input;
 /// the display (<see cref="IDisplayCheck"/>) and remembers the capture monitor. Before every screenshot the
 /// <see cref="ISessionGuard"/> checks the session and the RDP window, and so it does before every mouse and keyboard
 /// action. Mouse actions map the caller's point with the latest screenshot (<see cref="CurrentGeometry"/>).
-/// Features of later milestones throw <see cref="NotImplementedException"/> until then.
 /// </summary>
 internal sealed partial class DesktopScreen(
     IDisplayCheck displayCheck,
@@ -27,6 +27,7 @@ internal sealed partial class DesktopScreen(
     IFrameEncoder encoder,
     MouseDriver mouse,
     KeyboardDriver keyboard,
+    ICursorPosition cursor,
     IOptions<VeraInputOptions> options,
     ILogger<DesktopScreen> logger) : IScreen
 {
@@ -53,12 +54,13 @@ internal sealed partial class DesktopScreen(
         return Task.Run(() => Capture(new ScreenRect(left, top, width, height), 1), ct);
     }
 
+    /// <summary>Hovers: glides the pointer from where it is to the point, then waits <c>HoverDwell</c> so tooltips show.</summary>
     public async Task MoveAsync(int x, int y, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         var (screen, normalized) = Target(x, y);
         LogMove(logger, x, y, screen);
-        await mouse.MoveAsync(normalized, ct);
+        await mouse.HoverAsync(CursorNow() ?? normalized, normalized, ct);
     }
 
     public async Task ClickAsync(int x, int y, MouseButton button = MouseButton.Left, int clicks = 1, CancellationToken ct = default)
@@ -71,11 +73,26 @@ internal sealed partial class DesktopScreen(
         await mouse.ClickAsync(normalized, button, clicks, ct);
     }
 
-    public Task ScrollAsync(int x, int y, int deltaY, int deltaX = 0, CancellationToken ct = default) =>
-        throw new NotImplementedException("Scrolling comes in Milestone 7.");
+    /// <exception cref="ArgumentOutOfRangeException">The point is outside the screenshot, both deltas are 0, or one is beyond 50 notches. Nothing moves.</exception>
+    public async Task ScrollAsync(int x, int y, int deltaY, int deltaX = 0, CancellationToken ct = default)
+    {
+        MouseDriver.CheckScroll(deltaY, deltaX);
+        ct.ThrowIfCancellationRequested();
+        var (screen, normalized) = Target(x, y);
+        LogScroll(logger, deltaY, deltaX, x, y, screen);
+        await mouse.ScrollAsync(normalized, deltaY, deltaX, ct);
+    }
 
-    public Task DragAsync(int fromX, int fromY, int toX, int toY, MouseButton button = MouseButton.Left, CancellationToken ct = default) =>
-        throw new NotImplementedException("Dragging comes in Milestone 7.");
+    /// <exception cref="ArgumentOutOfRangeException">A point is outside the screenshot. Nothing moves.</exception>
+    public async Task DragAsync(int fromX, int fromY, int toX, int toY, MouseButton button = MouseButton.Left, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var frame = CurrentGeometry();
+        var to = CoordinateMapper.ImageToScreen(frame, new ImagePoint(toX, toY));
+        var (from, fromNormalized) = Target(fromX, fromY);
+        LogDrag(logger, button, fromX, fromY, toX, toY, from, to);
+        await mouse.DragAsync(fromNormalized, CoordinateMapper.ScreenToNormalized(frame.VirtualDesktop, to), button, ct);
+    }
 
     public async Task TypeTextAsync(string text, TypeTextOptions? options = null, CancellationToken ct = default)
     {
@@ -135,6 +152,19 @@ internal sealed partial class DesktopScreen(
         var screen = CoordinateMapper.ImageToScreen(frame, new ImagePoint(x, y));
         EnsureReady(frame.CaptureBounds);
         return (screen, CoordinateMapper.ScreenToNormalized(frame.VirtualDesktop, screen));
+    }
+
+    /// <summary>Where the pointer is now, in Windows mouse units, or null if Windows won't say (then the hover jumps).</summary>
+    private NormalizedPoint? CursorNow()
+    {
+        try
+        {
+            return CoordinateMapper.ScreenToNormalized(CurrentGeometry().VirtualDesktop, cursor.Read());
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
     }
 
     private void EnsureReady(ScreenRect bounds)
@@ -206,11 +236,17 @@ internal sealed partial class DesktopScreen(
     [LoggerMessage(Level = LogLevel.Information, Message = "Screenshot {Sequence}: {Width}×{Height}, grab {GrabMs} ms, encode {EncodeMs} ms, {Bytes} bytes")]
     private static partial void LogCaptured(ILogger logger, long sequence, int width, int height, long grabMs, long encodeMs, int bytes);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Move to {X},{Y} in the screenshot → {Screen} on screen")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Hover at {X},{Y} in the screenshot → {Screen} on screen")]
     private static partial void LogMove(ILogger logger, int x, int y, ScreenPoint screen);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Click {Button} ×{Clicks} at {X},{Y} in the screenshot → {Screen} on screen")]
     private static partial void LogClick(ILogger logger, MouseButton button, int clicks, int x, int y, ScreenPoint screen);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scroll {DeltaY} down, {DeltaX} right at {X},{Y} in the screenshot → {Screen} on screen")]
+    private static partial void LogScroll(ILogger logger, int deltaY, int deltaX, int x, int y, ScreenPoint screen);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Drag {Button} from {FromX},{FromY} to {ToX},{ToY} in the screenshot → {From} to {To} on screen")]
+    private static partial void LogDrag(ILogger logger, MouseButton button, int fromX, int fromY, int toX, int toY, ScreenPoint from, ScreenPoint to);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Type {Length} characters: {Text}")]
     private static partial void LogType(ILogger logger, int length, string text);

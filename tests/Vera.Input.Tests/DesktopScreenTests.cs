@@ -20,6 +20,7 @@ public sealed class DesktopScreenTests
     private readonly IScreenGrabber _grabber = Substitute.For<IScreenGrabber>();
     private readonly IFrameValidator _validator = Substitute.For<IFrameValidator>();
     private readonly IFrameEncoder _encoder = Substitute.For<IFrameEncoder>();
+    private readonly ICursorPosition _cursor = Substitute.For<ICursorPosition>();
     private readonly RecordingSink _sink = new();
     private readonly ListLogger<DesktopScreen> _logger = new();
 
@@ -30,6 +31,7 @@ public sealed class DesktopScreenTests
         _displayCheck.Run().Returns(new DisplayReport(new DisplaySnapshot(Monitor.Bounds, [Monitor], false), Monitor));
         _grabber.Grab(Arg.Any<ScreenRect>()).Returns(call => new RawFrame(call.Arg<ScreenRect>(), [], Time));
         _encoder.Encode(Arg.Any<RawFrame>(), Arg.Any<double>()).Returns(new EncodedImage([1, 2, 3], 1920, 1080));
+        _cursor.Read().Returns(new ScreenPoint(3839, 1079)); // Bottom-right corner of the monitor.
     }
 
     [Fact]
@@ -219,11 +221,64 @@ public sealed class DesktopScreenTests
     }
 
     [Fact]
-    public async Task A_move_goes_to_the_screen_pixel_of_the_screenshot_point()
+    public async Task A_hover_glides_from_the_pointer_to_the_screen_pixel_of_the_screenshot_point()
     {
         await Screen().MoveAsync(0, 0, Ct);
 
-        _sink.Events.ShouldBe([InputEvent.MouseMove(new NormalizedPoint(0, 0))]);
+        _sink.Events.Count.ShouldBe(MouseDriver.GlideSteps);
+        _sink.Events[0].Point.X.ShouldBeGreaterThan(60000); // Starts near the pointer, bottom right.
+        _sink.Events[^1].ShouldBe(InputEvent.MouseMove(new NormalizedPoint(0, 0)));
+    }
+
+    [Fact]
+    public async Task A_hover_jumps_when_windows_will_not_say_where_the_pointer_is()
+    {
+        _cursor.Read().Returns(_ => throw new System.ComponentModel.Win32Exception());
+
+        await Screen().MoveAsync(0, 0, Ct);
+
+        _sink.Events.ShouldAllBe(e => e == InputEvent.MouseMove(new NormalizedPoint(0, 0)));
+    }
+
+    [Fact]
+    public async Task A_scroll_moves_to_the_point_then_turns_the_wheel()
+    {
+        await Screen().ScrollAsync(0, 0, deltaY: 2, ct: Ct);
+
+        _sink.Events.ShouldBe([
+            InputEvent.MouseMove(new NormalizedPoint(0, 0)),
+            InputEvent.MouseWheel(-120, horizontal: false),
+            InputEvent.MouseWheel(-120, horizontal: false),
+        ]);
+        _logger.Messages.ShouldContain(m => m.Contains("Scroll 2 down", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_scroll_of_nothing_throws_before_the_guard()
+    {
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => Screen().ScrollAsync(0, 0, 0, ct: Ct));
+
+        _guard.DidNotReceive().EnsureReady(Arg.Any<ScreenRect>());
+        _sink.Events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_drag_goes_from_one_screenshot_point_to_the_other()
+    {
+        await Screen().DragAsync(0, 0, 1919, 1079, MouseButton.Left, Ct);
+
+        _sink.Events[0].ShouldBe(InputEvent.MouseMove(new NormalizedPoint(0, 0)));
+        _sink.Events[1].ShouldBe(InputEvent.MouseDown(MouseButton.Left));
+        _sink.Events[^2].ShouldBe(InputEvent.MouseMove(CoordinateMapper.ScreenToNormalized(Monitor.Bounds, new ScreenPoint(3839, 1079))));
+        _sink.Events[^1].ShouldBe(InputEvent.MouseUp(MouseButton.Left));
+    }
+
+    [Fact]
+    public async Task A_drag_to_a_point_outside_the_screenshot_throws_and_sends_nothing()
+    {
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => Screen().DragAsync(0, 0, 1920, 0, ct: Ct));
+
+        _sink.Events.ShouldBeEmpty();
     }
 
     [Theory]
@@ -245,6 +300,8 @@ public sealed class DesktopScreenTests
 
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ClickAsync(10, 10, ct: Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().MoveAsync(10, 10, Ct));
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().ScrollAsync(10, 10, 1, ct: Ct));
+        await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().DragAsync(10, 10, 20, 20, ct: Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().TypeTextAsync("a", ct: Ct));
         await Should.ThrowAsync<ScreenUnavailableException>(() => Screen().KeyAsync("enter", ct: Ct));
 
@@ -317,7 +374,11 @@ public sealed class DesktopScreenTests
         var options = MsOptions.Create(new VeraInputOptions
         {
             Capture = capture ?? new CaptureOptions(),
-            Delays = new DelayOptions { AfterMove = 0, MouseDownUp = 0, BetweenClicks = 0, AfterClick = 0, BetweenKeys = 0, AfterType = 0 },
+            Delays = new DelayOptions
+            {
+                AfterMove = 0, MouseDownUp = 0, BetweenClicks = 0, AfterClick = 0, BetweenKeys = 0, AfterType = 0,
+                BetweenNotches = 0, BetweenMoveSteps = 0, HoverDwell = 0,
+            },
         });
         return new(
             _displayCheck,
@@ -327,6 +388,7 @@ public sealed class DesktopScreenTests
             _encoder,
             new MouseDriver(_sink, options, TimeProvider.System),
             new KeyboardDriver(_sink, options, TimeProvider.System),
+            _cursor,
             options,
             _logger);
     }
