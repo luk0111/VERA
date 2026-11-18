@@ -10,6 +10,7 @@
     <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
     <ProjectReference Include="../Vera.Input.Abstractions/Vera.Input.Abstractions.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
