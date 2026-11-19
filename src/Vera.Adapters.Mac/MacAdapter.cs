@@ -403,7 +403,7 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
         }
     }
 
-    private static string? ReadString(IntPtr element, string attribute)
+    internal static string? ReadString(IntPtr element, string attribute)
     {
         var value = Copy(element, attribute);
         try
@@ -435,7 +435,7 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
         }
     }
 
-    private static IntPtr Copy(IntPtr element, string attribute) =>
+    internal static IntPtr Copy(IntPtr element, string attribute) =>
         MacNative.AXUIElementCopyAttributeValue(element, MacNative.Key(attribute), out var value) == MacNative.AxSuccess ? value : IntPtr.Zero;
 
     private void Release()

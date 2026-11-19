@@ -18,6 +18,7 @@
     <Compile Include="../Vera.Adapters.Desktop/ElementNumbering.cs" Link="Shared/ElementNumbering.cs" />
     <Compile Include="../Vera.Adapters.Desktop/RawElement.cs" Link="Shared/RawElement.cs" />
     <Compile Include="../Vera.Adapters.Desktop/ClickPoint.cs" Link="Shared/ClickPoint.cs" />
+    <Compile Include="../Vera.Adapters.Desktop/StepRecording.cs" Link="Shared/StepRecording.cs" />
   </ItemGroup>
 
   <ItemGroup>

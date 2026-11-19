@@ -139,6 +139,63 @@ internal static partial class MacNative
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool CGRequestScreenCaptureAccess();
 
+    /// <summary>The run loop mode a recording runs in. Not owned by the caller.</summary>
+    public static IntPtr RunLoopDefaultMode()
+    {
+        var library = NativeLibrary.Load(CoreFoundationLibrary);
+        return Marshal.ReadIntPtr(NativeLibrary.GetExport(library, "kCFRunLoopDefaultMode"));
+    }
+
+    // Recording steps (#48): an event tap that only listens, run on its own run loop, and the element under the mouse.
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    public static unsafe partial IntPtr CGEventTapCreate(
+        uint tap, uint place, uint options, ulong eventsOfInterest, delegate* unmanaged[Cdecl]<IntPtr, uint, IntPtr, IntPtr, IntPtr> callback, IntPtr userInfo);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    public static partial void CGEventTapEnable(IntPtr tap, [MarshalAs(UnmanagedType.U1)] bool enable);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    public static partial long CGEventGetIntegerValueField(IntPtr cgEvent, uint field);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    public static partial ulong CGEventGetFlags(IntPtr cgEvent);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    public static partial DoublePair CGEventGetLocation(IntPtr cgEvent);
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool CGPreflightListenEventAccess();
+
+    [LibraryImport(CoreGraphicsLibrary)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool CGRequestListenEventAccess();
+
+    [LibraryImport(CoreFoundationLibrary)]
+    public static partial IntPtr CFMachPortCreateRunLoopSource(IntPtr allocator, IntPtr port, nint order);
+
+    [LibraryImport(CoreFoundationLibrary)]
+    public static partial void CFMachPortInvalidate(IntPtr port);
+
+    [LibraryImport(CoreFoundationLibrary)]
+    public static partial IntPtr CFRunLoopGetCurrent();
+
+    [LibraryImport(CoreFoundationLibrary)]
+    public static partial void CFRunLoopAddSource(IntPtr runLoop, IntPtr source, IntPtr mode);
+
+    [LibraryImport(CoreFoundationLibrary)]
+    public static partial int CFRunLoopRunInMode(IntPtr mode, double seconds, [MarshalAs(UnmanagedType.U1)] bool returnAfterSourceHandled);
+
+    [LibraryImport(ApplicationServicesLibrary)]
+    public static partial IntPtr AXUIElementCreateSystemWide();
+
+    [LibraryImport(ApplicationServicesLibrary)]
+    public static partial int AXUIElementCopyElementAtPosition(IntPtr application, float x, float y, out IntPtr element);
+
+    [LibraryImport(ApplicationServicesLibrary)]
+    public static partial int AXUIElementGetPid(IntPtr element, out int processId);
+
     [LibraryImport(ApplicationServicesLibrary)]
     [return: MarshalAs(UnmanagedType.U1)]
     private static partial bool AXIsProcessTrusted();

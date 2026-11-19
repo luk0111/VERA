@@ -1,8 +1,9 @@
 using Spectre.Console;
 using Vera.Application;
-using Vera.Core;
-#if WINDOWS
 using Vera.Adapters.Desktop;
+using Vera.Core;
+#if !WINDOWS
+using Vera.Adapters.Mac;
 #endif
 
 namespace Vera.Cli.Screens;
@@ -10,7 +11,7 @@ namespace Vera.Cli.Screens;
 /// <summary>
 /// Write a chain of steps for the selected app and run it. Each command decides its action; the model finds each element, as in Find.
 /// VERA runs the steps in order without asking anything in between (except risky clicks, if Settings says so) and ends with a verdict.
-/// Steps can be saved as text files and loaded again (<see cref="StepFileStore"/>), and on Windows recorded while the tester does them (#48).
+/// Steps can be saved as text files and loaded again (<see cref="StepFileStore"/>), and recorded while the tester does them on Windows or a Mac (#48).
 /// </summary>
 internal static class StepsScreen
 {
@@ -85,9 +86,11 @@ internal static class StepsScreen
         {
             var saved = store.List();
             List<Start> choices = [Start.Write];
-#if WINDOWS
-            choices.Add(Start.Record);
-#endif
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            {
+                choices.Add(Start.Record);
+            }
+
             if (saved.Count > 0)
             {
                 choices.Add(Start.Load);
@@ -125,9 +128,7 @@ internal static class StepsScreen
                 chain = start switch
                 {
                     Start.Load => Load(settings, app, store, saved),
-#if WINDOWS
                     Start.Record => await RecordAsync(settings, app),
-#endif
                     _ => new Chain([]),
                 };
                 if (chain is null)
@@ -428,7 +429,6 @@ internal static class StepsScreen
         }
     }
 
-#if WINDOWS
     // Watches the tester do the steps in the app until they press Enter here, showing each step as it's written. Null when nothing was recorded.
     private static async Task<Chain?> RecordAsync(AppSettings settings, RunningApp app)
     {
@@ -447,7 +447,12 @@ internal static class StepsScreen
 
         try
         {
-            await foreach (var action in StepRecorder.RecordAsync(app.Id, stop.Token))
+#if WINDOWS
+            var recording = StepRecorder.RecordAsync(app.Id, stop.Token);
+#else
+            var recording = MacStepRecorder.RecordAsync(app.Id, stop.Token);
+#endif
+            await foreach (var action in recording)
             {
                 if (action is RecordedSkip skip)
                 {
@@ -491,7 +496,6 @@ internal static class StepsScreen
 
     private static string Describe(string role, string name) =>
         ElementFinder.Describe(new UiElement(0, role, name, new ScreenRect(0, 0, 0, 0), IsEnabled: true, Locator: ""));
-#endif
 
     // Pick a step, then rewrite it, delete it or add one before it, until the tester is done or no steps are left.
     private static void EditSteps(AppSettings settings, RunningApp app, List<StepCommand> steps)
