@@ -28,6 +28,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vera.Application.Tests" />
+    <!-- Recorded steps are worded with ElementFinder.Describe, like Find. -->
+    <InternalsVisibleTo Include="Vera.Cli" />
   </ItemGroup>
 
 </Project>

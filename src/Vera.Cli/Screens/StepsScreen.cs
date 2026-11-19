@@ -1,13 +1,16 @@
 using Spectre.Console;
 using Vera.Application;
 using Vera.Core;
+#if WINDOWS
+using Vera.Adapters.Desktop;
+#endif
 
 namespace Vera.Cli.Screens;
 
 /// <summary>
 /// Write a chain of steps for the selected app and run it. Each command decides its action; the model finds each element, as in Find.
 /// VERA runs the steps in order without asking anything in between (except risky clicks, if Settings says so) and ends with a verdict.
-/// Steps can be saved as text files and loaded again (<see cref="StepFileStore"/>).
+/// Steps can be saved as text files and loaded again (<see cref="StepFileStore"/>), and on Windows recorded while the tester does them (#48).
 /// </summary>
 internal static class StepsScreen
 {
@@ -20,6 +23,7 @@ internal static class StepsScreen
     private enum Start
     {
         Write,
+        Record,
         Load,
         Back,
     }
@@ -49,22 +53,35 @@ internal static class StepsScreen
 
     public static async Task ShowAsync(AppSettings settings, RunningApp app, StepRunner runner, StepFileStore store)
     {
-        var chain = Choose(settings, app, store);
+        var chain = await ChooseAsync(settings, app, store);
         while (chain is not null)
         {
             await RunAsync(settings, app, runner, chain.Steps);
-            chain = AfterRun(settings, app, store, chain);
+            chain = await AfterRunAsync(settings, app, store, chain);
         }
     }
 
-    // Write new steps or load saved ones, then save or add to them until the tester runs them; null to go back to the main menu.
-    private static Chain? Choose(AppSettings settings, RunningApp app, StepFileStore store)
+    // Write new steps, record them or load saved ones, then save or add to them until the tester runs them; null to go back to the main menu.
+    private static async Task<Chain?> ChooseAsync(AppSettings settings, RunningApp app, StepFileStore store)
     {
         while (true)
         {
             var saved = store.List();
+            List<Start> choices = [Start.Write];
+#if WINDOWS
+            choices.Add(Start.Record);
+#endif
+            if (saved.Count > 0)
+            {
+                choices.Add(Start.Load);
+            }
+
+            choices.Add(Start.Back);
+
+            // With only Write and Back there is nothing to choose.
+            var hasMenu = choices.Count > 2;
             Chain? chain;
-            if (saved.Count == 0)
+            if (!hasMenu)
             {
                 chain = new Chain([]);
             }
@@ -75,10 +92,11 @@ internal static class StepsScreen
                     new SelectionPrompt<Start>()
                         .Title("What do you want to run?")
                         .HighlightStyle(Ui.Highlight)
-                        .AddChoices(Enum.GetValues<Start>())
+                        .AddChoices(choices)
                         .UseConverter(s => s switch
                         {
                             Start.Write => "Write new steps",
+                            Start.Record => "Record steps by doing them",
                             Start.Load => $"Load saved steps ({saved.Count})",
                             _ => "Back to the main menu",
                         }));
@@ -87,7 +105,14 @@ internal static class StepsScreen
                     return null;
                 }
 
-                chain = start == Start.Load ? Load(settings, app, store, saved) : new Chain([]);
+                chain = start switch
+                {
+                    Start.Load => Load(settings, app, store, saved),
+#if WINDOWS
+                    Start.Record => await RecordAsync(settings, app),
+#endif
+                    _ => new Chain([]),
+                };
                 if (chain is null)
                 {
                     continue;
@@ -96,8 +121,8 @@ internal static class StepsScreen
 
             if (chain.Steps.Count == 0 && !WriteSteps(settings, app, chain.Steps))
             {
-                // With nothing saved there is no start menu to go back to.
-                if (saved.Count == 0)
+                // Without a start menu there is nothing to go back to.
+                if (!hasMenu)
                 {
                     return null;
                 }
@@ -156,7 +181,7 @@ internal static class StepsScreen
     }
 
     // After a run: run again, save, pick other steps or go back. Returns the steps to run next, or null for the main menu.
-    private static Chain? AfterRun(AppSettings settings, RunningApp app, StepFileStore store, Chain chain)
+    private static async Task<Chain?> AfterRunAsync(AppSettings settings, RunningApp app, StepFileStore store, Chain chain)
     {
         while (true)
         {
@@ -169,7 +194,7 @@ internal static class StepsScreen
                     {
                         Next.RunAgain => "Run the same steps again",
                         Next.Save => "Save these steps",
-                        Next.Other => "Write new steps or load saved ones",
+                        Next.Other => "Other steps",
                         _ => "Back to the main menu",
                     }));
 
@@ -182,7 +207,7 @@ internal static class StepsScreen
                     AnsiConsole.WriteLine();
                     break;
                 case Next.Other:
-                    return Choose(settings, app, store);
+                    return await ChooseAsync(settings, app, store);
                 default:
                     return null;
             }
@@ -329,6 +354,71 @@ internal static class StepsScreen
             }
         }
     }
+
+#if WINDOWS
+    // Watches the tester do the steps in the app until they press Enter here, showing each step as it's written. Null when nothing was recorded.
+    private static async Task<Chain?> RecordAsync(AppSettings settings, RunningApp app)
+    {
+        ShowTop(settings, app);
+        AnsiConsole.MarkupLine($"Do the steps in [teal]{Markup.Escape(app.Name)}[/]: click, type and press keys as usual.");
+        AnsiConsole.MarkupLine("[grey]Then come back to this window and press Enter to stop.[/]");
+        AnsiConsole.WriteLine();
+
+        var steps = new List<StepCommand>();
+        using var stop = new CancellationTokenSource();
+        var enter = Task.Run(() =>
+        {
+            Console.ReadLine();
+            stop.Cancel();
+        });
+
+        try
+        {
+            await foreach (var action in StepRecorder.RecordAsync(app.Id, stop.Token))
+            {
+                if (action is RecordedSkip skip)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]![/] [grey]{Markup.Escape(skip.Reason)}[/]");
+                    continue;
+                }
+
+                var step = ToStep(action);
+                steps.Add(step);
+                AnsiConsole.MarkupLine($"[grey]Step {steps.Count} >[/] {Markup.Escape(step.ToString())}");
+            }
+        }
+        catch (InvalidOperationException e)
+        {
+            Ui.ShowErrorPanel(e.Message);
+            AnsiConsole.MarkupLine("[grey]Press Enter to go back.[/]");
+        }
+
+        await enter;
+        if (steps.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]Nothing was recorded.[/]");
+            Ui.Pause();
+            return null;
+        }
+
+        ShowTop(settings, app);
+        AnsiConsole.MarkupLine("[grey]Recorded:[/]");
+        ShowSteps(steps);
+        return new Chain(steps);
+    }
+
+    // Elements are written the way Find describes them, e.g. button "Save", so the model finds them again.
+    private static StepCommand ToStep(RecordedAction action) => action switch
+    {
+        RecordedClick c => new ClickStep(Describe(c.Role, c.Name)),
+        RecordedType t => new TypeStep(t.Text, Describe(t.Role, t.Name)),
+        RecordedPress p => new PressStep(p.Keys),
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Not a step."),
+    };
+
+    private static string Describe(string role, string name) =>
+        ElementFinder.Describe(new UiElement(0, role, name, new ScreenRect(0, 0, 0, 0), IsEnabled: true, Locator: ""));
+#endif
 
     private static void ShowSteps(List<StepCommand> steps)
     {
