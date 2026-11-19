@@ -5,6 +5,10 @@ on:
     branches: [main, beta, internal]
   pull_request:
 
+# CI only reads the code, so its GitHub token can't change the repository (code scanning alert actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 jobs:
   # Branch flow: working branches -> internal -> beta -> main (releases only).
   # Only beta (or a fix/ hotfix) may go into main, and only internal (or main, after a hotfix) into beta.
