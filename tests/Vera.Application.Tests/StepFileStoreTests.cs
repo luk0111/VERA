@@ -64,6 +64,18 @@ public sealed class StepFileStoreTests : IDisposable
     }
 
     [Fact]
+    public void Deleting_removes_only_that_file()
+    {
+        _store.Save("a", [new PressStep("enter")]);
+        _store.Save("b", [new PressStep("esc")]);
+
+        _store.Delete("a");
+
+        _store.List().ShouldBe(["b"]);
+        Should.NotThrow(() => _store.Delete("a"));
+    }
+
+    [Fact]
     public void Blank_lines_and_comments_are_skipped()
     {
         Directory.CreateDirectory(_folder);

@@ -32,6 +32,7 @@ internal static class StepsScreen
     {
         Run,
         AddMore,
+        Edit,
         Save,
         Back,
     }
@@ -39,8 +40,24 @@ internal static class StepsScreen
     private enum Next
     {
         RunAgain,
+        Edit,
         Save,
         Other,
+        Back,
+    }
+
+    private enum Change
+    {
+        Rewrite,
+        Delete,
+        AddBefore,
+        Back,
+    }
+
+    private enum SavedAction
+    {
+        Use,
+        Delete,
         Back,
     }
 
@@ -150,6 +167,7 @@ internal static class StepsScreen
                     {
                         Ready.Run => $"Run them in {Markup.Escape(app.Name)}",
                         Ready.AddMore => "Add more steps",
+                        Ready.Edit => "Edit steps",
                         Ready.Save => "Save these steps",
                         _ => "Back to the main menu",
                     }));
@@ -162,6 +180,9 @@ internal static class StepsScreen
                     // /back here only stops adding; the steps stay.
                     WriteSteps(settings, app, chain.Steps);
                     break;
+                case Ready.Edit:
+                    EditSteps(settings, app, chain.Steps);
+                    break;
                 case Ready.Save:
                     Save(store, chain);
                     break;
@@ -171,7 +192,7 @@ internal static class StepsScreen
 
             if (chain.Steps.Count == 0)
             {
-                // Cleared with /clear and nothing written since: start over.
+                // Cleared with /clear or every step deleted, and nothing written since: start over.
                 if (!WriteSteps(settings, app, chain.Steps))
                 {
                     return false;
@@ -193,6 +214,7 @@ internal static class StepsScreen
                     .UseConverter(n => n switch
                     {
                         Next.RunAgain => "Run the same steps again",
+                        Next.Edit => "Edit these steps",
                         Next.Save => "Save these steps",
                         Next.Other => "Other steps",
                         _ => "Back to the main menu",
@@ -202,6 +224,15 @@ internal static class StepsScreen
             {
                 case Next.RunAgain:
                     return chain;
+                case Next.Edit:
+                    // Then the usual menu: run, add more, edit again or save.
+                    EditSteps(settings, app, chain.Steps);
+                    if (chain.Steps.Count == 0 && !WriteSteps(settings, app, chain.Steps))
+                    {
+                        return null;
+                    }
+
+                    return Review(settings, app, store, chain) ? chain : null;
                 case Next.Save:
                     Save(store, chain);
                     AnsiConsole.WriteLine();
@@ -214,7 +245,7 @@ internal static class StepsScreen
         }
     }
 
-    // Picks a saved file and reads it; null when the tester goes back or the file can't be read.
+    // Picks a saved file and reads it, or deletes it; null when the tester goes back, deletes it or the file can't be read.
     private static Chain? Load(AppSettings settings, RunningApp app, StepFileStore store, IReadOnlyList<string> saved)
     {
         ShowTop(settings, app);
@@ -233,6 +264,28 @@ internal static class StepsScreen
             return null;
         }
 
+        var action = AnsiConsole.Prompt(
+            new SelectionPrompt<SavedAction>()
+                .Title($"[teal]{Markup.Escape(name)}[/]")
+                .HighlightStyle(Ui.Highlight)
+                .AddChoices(Enum.GetValues<SavedAction>())
+                .UseConverter(a => a switch
+                {
+                    SavedAction.Use => "Use these steps",
+                    SavedAction.Delete => "Delete them",
+                    _ => "Back",
+                }));
+        if (action == SavedAction.Delete)
+        {
+            Delete(store, name);
+            return null;
+        }
+
+        if (action == SavedAction.Back)
+        {
+            return null;
+        }
+
         try
         {
             var chain = new Chain([.. store.Load(name)]) { Name = name };
@@ -247,6 +300,26 @@ internal static class StepsScreen
             Ui.Pause();
             return null;
         }
+    }
+
+    private static void Delete(StepFileStore store, string name)
+    {
+        if (!AnsiConsole.Confirm($"Delete [teal]{Markup.Escape(name)}[/]? This can't be undone.", defaultValue: false))
+        {
+            return;
+        }
+
+        try
+        {
+            store.Delete(name);
+            AnsiConsole.MarkupLine($"[green]Deleted {Markup.Escape(name)}.[/]");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Ui.ShowErrorPanel($"Could not delete {name}: {e.Message}");
+        }
+
+        Ui.Pause();
     }
 
     // Saves under the name the steps were loaded or saved as, or a new one. Every question here can go back without saving.
@@ -419,6 +492,80 @@ internal static class StepsScreen
     private static string Describe(string role, string name) =>
         ElementFinder.Describe(new UiElement(0, role, name, new ScreenRect(0, 0, 0, 0), IsEnabled: true, Locator: ""));
 #endif
+
+    // Pick a step, then rewrite it, delete it or add one before it, until the tester is done or no steps are left.
+    private static void EditSteps(AppSettings settings, RunningApp app, List<StepCommand> steps)
+    {
+        const int Done = -1;
+        while (steps.Count > 0)
+        {
+            ShowTop(settings, app);
+            var index = AnsiConsole.Prompt(
+                new SelectionPrompt<int>()
+                    .Title("Which step?")
+                    .HighlightStyle(Ui.Highlight)
+                    .PageSize(15)
+                    .MoreChoicesText("[grey](Move up and down to see more)[/]")
+                    .AddChoices(Enumerable.Range(0, steps.Count))
+                    .AddChoices(Done)
+                    .UseConverter(i => i == Done ? "[grey]Done editing[/]" : Markup.Escape($"{i + 1}. {steps[i]}")));
+            if (index == Done)
+            {
+                return;
+            }
+
+            var change = AnsiConsole.Prompt(
+                new SelectionPrompt<Change>()
+                    .Title($"Step {index + 1}: {Markup.Escape(steps[index].ToString())}")
+                    .HighlightStyle(Ui.Highlight)
+                    .AddChoices(Enum.GetValues<Change>())
+                    .UseConverter(c => c switch
+                    {
+                        Change.Rewrite => "Rewrite it",
+                        Change.Delete => "Delete it",
+                        Change.AddBefore => "Add a step before it",
+                        _ => "Back",
+                    }));
+
+            switch (change)
+            {
+                case Change.Rewrite when AskStep($"New step {index + 1}") is { } step:
+                    steps[index] = step;
+                    break;
+                case Change.Delete:
+                    steps.RemoveAt(index);
+                    break;
+                case Change.AddBefore when AskStep($"New step {index + 1}") is { } step:
+                    steps.Insert(index, step);
+                    break;
+            }
+        }
+    }
+
+    // One step line, checked like when writing steps; null when the tester leaves it empty.
+    private static StepCommand? AskStep(string label)
+    {
+        while (true)
+        {
+            var line = AnsiConsole.Prompt(new TextPrompt<string>($"[bold teal]{Markup.Escape(label)} >[/] [grey](empty to go back)[/]").AllowEmpty()).Trim();
+            if (line.Length == 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                if (StepParser.Parse(line) is { } step)
+                {
+                    return step;
+                }
+            }
+            catch (FormatException e)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(e.Message)}[/]");
+            }
+        }
+    }
 
     private static void ShowSteps(List<StepCommand> steps)
     {
