@@ -371,7 +371,7 @@ public sealed class ChatSessionTests
 
     [Theory]
     [InlineData(true, "\"system\":\"Windows\"", "can click elements")]
-    [InlineData(false, "\"system\":\"macOS\"", "can't click or type")]
+    [InlineData(false, "\"system\":\"macOS\"", "cmd+s both press Command+S")]
     public void What_VERA_can_do_depends_on_the_system(bool isWindows, string system, string actions)
     {
         var text = ChatSession.DescribeApp(App("App", "Title"), isWindows);

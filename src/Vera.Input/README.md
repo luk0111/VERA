@@ -14,7 +14,7 @@ It only works with what's visible on the screen, so it doesn't need to know how 
 | Move the mouse and click (left, right, middle; single, double, triple) | Yes |
 | Type text in any language, with symbols and emoji (Enter and Tab too) | Yes |
 | Press keys and combinations, such as Enter, Ctrl+S or Alt+F4 | Yes |
-| Scroll, drag and hover | Not yet |
+| Scroll (up, down, left, right), drag and drop, and hover (for tooltips and menus) | Yes, not yet tried by hand |
 
 So far, this has only been tested with the app on the same PC. It hasn't been tested through remote desktop tools such as RDP or AnyDesk.
 
@@ -36,6 +36,7 @@ VERA stops and shows a message explaining the problem. The most common causes ar
 - **The screenshot is completely black:** the screen is probably off, asleep or disconnected.
 - **A setting is wrong:** the message names the setting. Settings are in `appsettings.json`.
 - **Input rejected:** Windows refused the mouse or keyboard input. Usually the app being tested runs as administrator and VERA doesn't; run both the same way.
+- **A drop, or a hover menu, doesn't happen:** the app didn't notice the pointer moving. Raise `Delays:BetweenMoveSteps` (default 15 ms) or `Delays:HoverDwell` (default 500 ms).
 - **Some typed characters are missing:** the app can't keep up. Raise `Delays:BetweenKeys` in `appsettings.json` (default 20 ms; the Windows 11 Notepad needs at least 15).
 - **A key combo is refused:** the message lists the key names VERA knows. `Win+L` (locks the PC) and `Ctrl+Alt+Del` (Windows ignores it from programs) are always refused.
 - **Typed characters show as boxes:** the app's font doesn't have them, but they did arrive. Copy them into another app to check.

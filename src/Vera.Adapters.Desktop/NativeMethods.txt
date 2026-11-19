@@ -10,3 +10,14 @@ BringWindowToTop
 AttachThreadInput
 GetCurrentThreadId
 SendInput
+
+// Watching the tester's mouse and keyboard while recording steps
+SetWindowsHookEx
+UnhookWindowsHookEx
+CallNextHookEx
+GetModuleHandle
+GetMessage
+PeekMessage
+PostThreadMessage
+MSLLHOOKSTRUCT
+KBDLLHOOKSTRUCT

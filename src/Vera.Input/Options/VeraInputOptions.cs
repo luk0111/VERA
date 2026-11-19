@@ -66,9 +66,24 @@ public sealed record DelayOptions
     [Range(0, 5000)]
     public int BetweenClicks { get; init; } = 80;
 
-    /// <summary>After a click, so the app can redraw before the next screenshot.</summary>
+    /// <summary>After a click, a scroll or a drag, so the app can redraw before the next screenshot.</summary>
     [Range(0, 10000)]
     public int AfterClick { get; init; } = 300;
+
+    /// <summary>Between two wheel notches of a scroll, so the app scrolls once per notch.</summary>
+    [Range(0, 5000)]
+    public int BetweenNotches { get; init; } = 50;
+
+    /// <summary>
+    /// Between the small moves of a drag or a hover. Apps only notice a drag, and the Windows 11 Notepad only opens a
+    /// menu on hover, when the pointer glides there; 15 small moves 15 ms apart worked in Notepad.
+    /// </summary>
+    [Range(0, 5000)]
+    public int BetweenMoveSteps { get; init; } = 15;
+
+    /// <summary>After hovering, so tooltips and hover menus show up in the next screenshot.</summary>
+    [Range(0, 10000)]
+    public int HoverDwell { get; init; } = 500;
 
     /// <summary>
     /// Between two typed characters (or Enter/Tab), and between repeats of a key combo. The Windows 11 Notepad loses characters at 10 ms (e.g. when

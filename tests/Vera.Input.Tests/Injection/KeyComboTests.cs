@@ -25,6 +25,23 @@ public sealed class KeyComboTests
         combo.Keys.ShouldBe([new ScanKey(0x1D), new ScanKey(0x1F)]);
     }
 
+    [Theory]
+    [InlineData("cmd+s")]
+    [InlineData("Cmd+S")]
+    public void Cmd_means_ctrl_so_steps_written_on_a_mac_work(string text)
+    {
+        var combo = KeyCombo.Parse(text);
+
+        combo.Text.ShouldBe("ctrl+s");
+        combo.Keys.ShouldBe([new ScanKey(0x1D), new ScanKey(0x1F)]);
+    }
+
+    [Fact]
+    public void Ctrl_and_cmd_together_is_ctrl_twice()
+    {
+        Should.Throw<InvalidKeyComboException>(() => KeyCombo.Parse("ctrl+cmd+s")).Message.ShouldContain("ctrl twice");
+    }
+
     [Fact]
     public void Modifiers_are_put_in_one_order_with_the_main_key_last()
     {

@@ -11,7 +11,7 @@ namespace Vera.Input.Harness;
 
 /// <summary>
 /// The menu shown when the harness starts without a command. It asks a few questions, then runs the same command you
-/// could type (<c>info</c>, <c>screenshot</c>, <c>map</c>, <c>mouse</c>, <c>click</c>, <c>type</c>, <c>keys</c>) with the answers as settings on top of appsettings.json.
+/// could type (<c>info</c>, <c>screenshot</c>, <c>map</c>, <c>mouse</c>, <c>click</c>, <c>scroll</c>, <c>drag</c>, <c>hover</c>, <c>type</c>, <c>keys</c>) with the answers as settings on top of appsettings.json.
 /// </summary>
 internal static class HarnessMenu
 {
@@ -19,6 +19,9 @@ internal static class HarnessMenu
     private const string Map = "Map a point (screenshot → screen)";
     private const string Mouse = "Where's my mouse? (live)";
     private const string Click = "Click a point (moves the real mouse)";
+    private const string Scroll = "Scroll at a point (moves the real mouse)";
+    private const string Drag = "Drag from one point to another (moves the real mouse)";
+    private const string Hover = "Hover over a point (moves the real mouse)";
     private const string Type = "Type text (uses the real keyboard)";
     private const string Keys = "Press a key combo (uses the real keyboard)";
     private const string Info = "Show display info and settings";
@@ -30,7 +33,7 @@ internal static class HarnessMenu
         {
             var choice = AnsiConsole.Prompt(new SelectionPrompt<string>()
                 .Title("[bold]Vera.Input.Harness[/]: what do you want to test?")
-                .AddChoices(Screenshot, Map, Mouse, Click, Type, Keys, Info, Quit));
+                .AddChoices(Screenshot, Map, Mouse, Click, Scroll, Drag, Hover, Type, Keys, Info, Quit));
 
             switch (choice)
             {
@@ -45,6 +48,15 @@ internal static class HarnessMenu
                     break;
                 case Click:
                     await ClickPointAsync();
+                    break;
+                case Scroll:
+                    await ScrollAsync();
+                    break;
+                case Drag:
+                    await DragAsync();
+                    break;
+                case Hover:
+                    await HoverAsync();
                     break;
                 case Type:
                     await TypeTextAsync();
@@ -125,6 +137,82 @@ internal static class HarnessMenu
             ],
             overrides);
     }
+
+    private static async Task ScrollAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        var monitor = AskMonitor(overrides);
+        var scale = AskScale(monitor.Bounds);
+        var (width, height) = FrameGeometry.ScaledSize(monitor.Bounds.Width, monitor.Bounds.Height, scale);
+
+        var x = AskCoordinate($"X in the screenshot (0–{width - 1}):", width);
+        var y = AskCoordinate($"Y in the screenshot (0–{height - 1}):", height);
+        var down = AnsiConsole.Prompt(new TextPrompt<int>("Notches down (negative = up):").DefaultValue(3));
+        var right = AnsiConsole.Prompt(new TextPrompt<int>("Notches right (negative = left):").DefaultValue(0));
+        var delay = AskDelay();
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(
+            [
+                "scroll", x.ToString(CultureInfo.InvariantCulture), y.ToString(CultureInfo.InvariantCulture),
+                "--down", down.ToString(CultureInfo.InvariantCulture), "--right", right.ToString(CultureInfo.InvariantCulture),
+                "--scale", scale.ToString(CultureInfo.InvariantCulture), "--delay", delay.ToString(CultureInfo.InvariantCulture),
+            ],
+            overrides);
+    }
+
+    private static async Task DragAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        var monitor = AskMonitor(overrides);
+        var scale = AskScale(monitor.Bounds);
+        var (width, height) = FrameGeometry.ScaledSize(monitor.Bounds.Width, monitor.Bounds.Height, scale);
+
+        var fromX = AskCoordinate($"Start X in the screenshot (0–{width - 1}):", width);
+        var fromY = AskCoordinate($"Start Y in the screenshot (0–{height - 1}):", height);
+        var toX = AskCoordinate($"End X in the screenshot (0–{width - 1}):", width);
+        var toY = AskCoordinate($"End Y in the screenshot (0–{height - 1}):", height);
+        var button = AnsiConsole.Prompt(new SelectionPrompt<MouseButton>()
+            .Title("Which button?")
+            .AddChoices(MouseButton.Left, MouseButton.Right, MouseButton.Middle));
+        var delay = AskDelay();
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(
+            [
+                "drag",
+                fromX.ToString(CultureInfo.InvariantCulture), fromY.ToString(CultureInfo.InvariantCulture),
+                toX.ToString(CultureInfo.InvariantCulture), toY.ToString(CultureInfo.InvariantCulture),
+                "--button", button.ToString(),
+                "--scale", scale.ToString(CultureInfo.InvariantCulture), "--delay", delay.ToString(CultureInfo.InvariantCulture),
+            ],
+            overrides);
+    }
+
+    private static async Task HoverAsync()
+    {
+        var overrides = new Dictionary<string, string?>();
+        var monitor = AskMonitor(overrides);
+        var scale = AskScale(monitor.Bounds);
+        var (width, height) = FrameGeometry.ScaledSize(monitor.Bounds.Width, monitor.Bounds.Height, scale);
+
+        var x = AskCoordinate($"X in the screenshot (0–{width - 1}):", width);
+        var y = AskCoordinate($"Y in the screenshot (0–{height - 1}):", height);
+        var delay = AskDelay();
+
+        AnsiConsole.WriteLine();
+        await HarnessApp.RunAsync(
+            [
+                "hover", x.ToString(CultureInfo.InvariantCulture), y.ToString(CultureInfo.InvariantCulture),
+                "--scale", scale.ToString(CultureInfo.InvariantCulture), "--delay", delay.ToString(CultureInfo.InvariantCulture),
+            ],
+            overrides);
+    }
+
+    private static int AskDelay() =>
+        AnsiConsole.Prompt(new TextPrompt<int>("Wait how many seconds first, to bring the target window to the front?")
+            .DefaultValue(3)
+            .Validate(seconds => seconds >= 0 ? ValidationResult.Success() : ValidationResult.Error("Can't be negative.")));
 
     private static async Task TypeTextAsync()
     {

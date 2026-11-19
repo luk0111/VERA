@@ -43,11 +43,19 @@ internal sealed record KeyCombo(string Text, IReadOnlyList<ScanKey> Keys)
                 throw Invalid($"'{combo}' has an empty part. Write keys like ctrl+s.");
             }
 
+            // A step written on a Mac (cmd+s) does the same here: Cmd on a Mac is Ctrl on Windows.
+            if (name == "cmd")
+            {
+                name = "ctrl";
+            }
+
             if (Modifiers.ContainsKey(name))
             {
                 if (modifiers.Contains(name))
                 {
-                    throw Invalid($"'{combo}' has {name} twice.");
+                    throw Invalid(name == "ctrl"
+                        ? $"'{combo}' has ctrl twice (cmd means ctrl on Windows)."
+                        : $"'{combo}' has {name} twice.");
                 }
 
                 modifiers.Add(name);
@@ -86,7 +94,7 @@ internal sealed record KeyCombo(string Text, IReadOnlyList<ScanKey> Keys)
     }
 
     private static InvalidKeyComboException Invalid(string reason) =>
-        new($"{reason} Modifiers: {string.Join(", ", ModifierOrder)}. Keys: {string.Join(", ", MainKeys.Keys)}.");
+        new($"{reason} Modifiers: {string.Join(", ", ModifierOrder)} (cmd = ctrl). Keys: {string.Join(", ", MainKeys.Keys)}.");
 
     private static Dictionary<string, ScanKey> BuildKeys()
     {

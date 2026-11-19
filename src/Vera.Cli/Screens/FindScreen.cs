@@ -76,8 +76,7 @@ internal static class FindScreen
         AnsiConsole.MarkupLine($"[grey]Saved: {Markup.Escape(result.ImagePath)}[/]");
         Open(result.ImagePath);
 
-        // Only the Windows adapter can act so far.
-        if (result.Element is { } found && OperatingSystem.IsWindows())
+        if (result.Element is { } found)
         {
             await OfferActionAsync(app, service, found);
         }

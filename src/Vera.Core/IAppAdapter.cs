@@ -17,4 +17,13 @@ public interface IAppAdapter : IAsyncDisposable
 
     /// <summary>Presses keys, e.g. <c>Enter</c> or <c>Ctrl+S</c>.</summary>
     Task PressKeyAsync(string keys, CancellationToken ct);
+
+    /// <summary>Scrolls inside the element by wheel notches: positive <paramref name="deltaY"/> scrolls down, positive <paramref name="deltaX"/> right.</summary>
+    Task ScrollAsync(int elementId, int deltaY, int deltaX, CancellationToken ct);
+
+    /// <summary>Drags one element and drops it on another, both from the latest <see cref="GetScreenStateAsync"/>.</summary>
+    Task DragAsync(int fromElementId, int toElementId, CancellationToken ct);
+
+    /// <summary>Rests the pointer on the element, so its tooltip or hover menu shows in the next reading.</summary>
+    Task HoverAsync(int elementId, CancellationToken ct);
 }

@@ -161,6 +161,48 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"pressed {press.Keys}");
 
+                case ScrollStep scroll:
+                    var area = await FoundAsync(scroll.Target).ConfigureAwait(false);
+                    var (down, right) = scroll.Direction switch
+                    {
+                        ScrollDirection.Up => (-scroll.Notches, 0),
+                        ScrollDirection.Down => (scroll.Notches, 0),
+                        ScrollDirection.Left => (0, -scroll.Notches),
+                        _ => (0, scroll.Notches),
+                    };
+                    await adapter.ScrollAsync(area.Id, down, right, ct).ConfigureAwait(false);
+                    await runner.PauseAsync(ct).ConfigureAwait(false);
+                    return (StepOutcome.Done,
+                        $"scrolled {scroll.Direction.ToString().ToLowerInvariant()} {scroll.Notches} in {ElementFinder.Describe(area)} (element {area.Id})");
+
+                case DragStep drag:
+                    var dragged = await UsableAsync(drag.Source).ConfigureAwait(false);
+                    var drop = await FoundAsync(drag.Destination).ConfigureAwait(false);
+
+                    // Waiting for the drop target may have read the window again, so follow the dragged element into that reading.
+                    dragged = ElementFinder.Same(_screen!.Elements, dragged)
+                        ?? throw new StepNotDoneException($"{ElementFinder.Describe(dragged)} went away while VERA looked for \"{drag.Destination}\".");
+                    if (drop.Id == dragged.Id)
+                    {
+                        throw new StepNotDoneException($"\"{drag.Source}\" and \"{drag.Destination}\" are both {ElementFinder.Describe(drop)}. Describe two different elements.");
+                    }
+
+                    // The drop target decides what happens, e.g. a "Trash" or "Delete" area.
+                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name) && !await approveRisky(drop).ConfigureAwait(false))
+                    {
+                        throw new StepNotDoneException($"Stopped: dropping onto {ElementFinder.Describe(drop)} wasn't approved.");
+                    }
+
+                    await adapter.DragAsync(dragged.Id, drop.Id, ct).ConfigureAwait(false);
+                    await runner.PauseAsync(ct).ConfigureAwait(false);
+                    return (StepOutcome.Done,
+                        $"dragged {ElementFinder.Describe(dragged)} (element {dragged.Id}) to {ElementFinder.Describe(drop)} (element {drop.Id})");
+
+                case HoverStep hover:
+                    var hovered = await FoundAsync(hover.Target).ConfigureAwait(false);
+                    await adapter.HoverAsync(hovered.Id, ct).ConfigureAwait(false);
+                    return (StepOutcome.Done, $"hovered over {ElementFinder.Describe(hovered)} (element {hovered.Id})");
+
                 case ExpectShownStep shown:
                     var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true).ConfigureAwait(false);
                     return seen is null
@@ -256,6 +298,13 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             await Task.Delay(runner.ReadEvery, ct).ConfigureAwait(false);
             _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
             return true;
+        }
+
+        // An element to scroll in, drop on or hover over: found. Being disabled doesn't matter for these.
+        private async Task<UiElement> FoundAsync(string description)
+        {
+            var (element, notFound) = await WaitForAsync(description, _ => true).ConfigureAwait(false);
+            return element ?? throw new StepNotDoneException(notFound);
         }
 
         // The element to click or type into: found, and enabled.

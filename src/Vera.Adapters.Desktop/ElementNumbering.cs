@@ -22,6 +22,9 @@ internal static class ElementNumbering
         "Document",
     };
 
+    /// <summary>Whether a tester can act on an element with this role, so it can be numbered (or recorded as a step).</summary>
+    public static bool IsActionable(string role) => ActionableRoles.Contains(role);
+
     /// <summary>
     /// A web page inside the window: <c>Document</c> on Windows (UI Automation), <c>WebArea</c> on macOS (<c>AXWebArea</c>).
     /// Pages built from tables report every row and cell as a nameless list item, which nobody can ask for by name.

@@ -42,8 +42,9 @@ Rebuild after creating or changing it, because it is copied to the build output.
 
 ## macOS
 
-`Vera.Cli` runs on macOS, where chat and finding an element work. Mouse and keyboard control, `Vera.Input` and the tools are Windows-only.
+`Vera.Cli` runs on macOS, where chat, finding an element, clicking and typing in it, and running steps work. Mac mouse and keyboard live in `Vera.Adapters.Mac` (`MacScreen`). `Vera.Input` and the tools are Windows-only.
 
 - Build and run with the same commands. Install the .NET 10 SDK and Ollama first.
-- Reading a window needs two permissions, in System Settings > Privacy & Security: Accessibility, and Screen & System Audio Recording. Turn them on for the app VERA is started from (Terminal or Rider), then restart that app.
+- Reading a window and acting in it need two permissions, in System Settings > Privacy & Security: Accessibility, and Screen & System Audio Recording. Turn them on for the app VERA is started from (Terminal or Rider), then restart that app. Without Accessibility, macOS drops clicks and typing silently, so VERA checks it before every action.
+- Key combos are written as on Windows: `ctrl` and `cmd` both press Command, `alt` is Option. So `ctrl+tab` becomes Cmd+Tab (switch apps) on a Mac. `win` and `insert` are refused there.
 - `dotnet test` reports errors for `Vera.Input.Tests` and `Vera.Adapters.Desktop.Tests`, which can only start on Windows. The tests in the other projects still run.

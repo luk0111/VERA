@@ -20,6 +20,18 @@ public sealed class Win32InputSinkTests
     }
 
     [Theory]
+    [InlineData(false, MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL)]
+    [InlineData(true, MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL)]
+    internal void A_wheel_turn_carries_its_amount_and_does_not_move(bool horizontal, MOUSE_EVENT_FLAGS flag)
+    {
+        var input = Win32InputSink.ToInput(InputEvent.MouseWheel(-120, horizontal));
+
+        input.Anonymous.mi.dwFlags.ShouldBe(flag);
+        unchecked((int)input.Anonymous.mi.mouseData).ShouldBe(-120);
+        input.Anonymous.mi.dx.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData(MouseButton.Left, MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTDOWN, MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTUP)]
     [InlineData(MouseButton.Right, MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTDOWN, MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTUP)]
     [InlineData(MouseButton.Middle, MOUSE_EVENT_FLAGS.MOUSEEVENTF_MIDDLEDOWN, MOUSE_EVENT_FLAGS.MOUSEEVENTF_MIDDLEUP)]
