@@ -13,9 +13,12 @@ internal static partial class SettingsScreen
         ChooseModel,
         ConnectApi,
         SaveSecret,
-        MaxSteps,
+
+        // Hidden until something uses them: max steps is for the agent (Vera.Agent, not built yet),
+        // and Run steps always saves screenshots. Uncomment here, in the menu, the switch and the table to show them again.
+        // MaxSteps,
         RiskyActions,
-        Screenshots,
+        // Screenshots,
         Back,
     }
 
@@ -38,9 +41,9 @@ internal static partial class SettingsScreen
                         Option.ChooseModel => "Choose the model",
                         Option.ConnectApi => "Connect your API key",
                         Option.SaveSecret => "Save a secret for typing (e.g. a password)",
-                        Option.MaxSteps => "Max steps per test",
+                        // Option.MaxSteps => "Max steps per test",
                         Option.RiskyActions => "Ask before risky actions",
-                        Option.Screenshots => "Save screenshots",
+                        // Option.Screenshots => "Save screenshots",
                         Option.Back => "Back",
                         _ => o.ToString(),
                     }));
@@ -56,22 +59,22 @@ internal static partial class SettingsScreen
                 case Option.SaveSecret:
                     await SaveSecretAsync(settings, secrets);
                     break;
-                case Option.MaxSteps:
-                    settings.MaxStepsPerTest = AnsiConsole.Prompt(
-                        new TextPrompt<int>("Max steps per test:")
-                            .DefaultValue(settings.MaxStepsPerTest)
-                            .Validate(n => n is >= 1 and <= 200
-                                ? ValidationResult.Success()
-                                : ValidationResult.Error("[red]Enter a number between 1 and 200.[/]")));
-                    break;
+                // case Option.MaxSteps:
+                //     settings.MaxStepsPerTest = AnsiConsole.Prompt(
+                //         new TextPrompt<int>("Max steps per test:")
+                //             .DefaultValue(settings.MaxStepsPerTest)
+                //             .Validate(n => n is >= 1 and <= 200
+                //                 ? ValidationResult.Success()
+                //                 : ValidationResult.Error("[red]Enter a number between 1 and 200.[/]")));
+                //     break;
                 case Option.RiskyActions:
                     settings.AskBeforeRiskyActions = AnsiConsole.Confirm(
                         "Ask for approval before risky actions (delete, save, submit...)?", settings.AskBeforeRiskyActions);
                     break;
-                case Option.Screenshots:
-                    settings.SaveScreenshots = AnsiConsole.Confirm(
-                        "Save a screenshot for every step?", settings.SaveScreenshots);
-                    break;
+                // case Option.Screenshots:
+                //     settings.SaveScreenshots = AnsiConsole.Confirm(
+                //         "Save a screenshot for every step?", settings.SaveScreenshots);
+                //     break;
                 case Option.Back:
                     return;
             }
@@ -111,9 +114,9 @@ internal static partial class SettingsScreen
             .AddRow("API key", settings.IsLocalModel
                 ? "[grey]Not needed (local)[/]"
                 : settings.IsApiKeyConnected ? "[green]Connected[/]" : "[yellow]Not connected[/]")
-            .AddRow("Max steps per test", settings.MaxStepsPerTest.ToString(System.Globalization.CultureInfo.InvariantCulture))
-            .AddRow("Ask before risky actions", YesNo(settings.AskBeforeRiskyActions))
-            .AddRow("Save screenshots", YesNo(settings.SaveScreenshots));
+            // .AddRow("Max steps per test", settings.MaxStepsPerTest.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .AddRow("Ask before risky actions", YesNo(settings.AskBeforeRiskyActions));
+            // .AddRow("Save screenshots", YesNo(settings.SaveScreenshots));
     }
 
     private static async Task ChooseModelAsync(AppSettings settings, ISecretStore secrets)
