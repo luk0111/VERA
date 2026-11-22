@@ -45,6 +45,7 @@ var newSteps = services.GetRequiredService<Func<string, StepRunner>>();
 var runningApps = services.GetRequiredService<IRunningAppSource>();
 var stepFiles = services.GetRequiredService<StepFileStore>();
 await SettingsScreen.RefreshApiKeyStateAsync(settings, secrets);
+await Ui.CheckModelAsync(settings, newChat(settings.SelectedModel.ProfileName));
 
 while (true)
 {
@@ -64,6 +65,19 @@ while (true)
                 MainMenuOption.Exit => "Exit",
                 _ => option.ToString(),
             }));
+
+    // Every app option needs the model; check it first so a broken setup never switches to the app's window.
+    var title = choice switch
+    {
+        MainMenuOption.StartTesting => "Start testing an app",
+        MainMenuOption.FindElement => "Find an element in an app",
+        MainMenuOption.RunSteps => "Run steps in an app",
+        _ => null,
+    };
+    if (title is not null && !await Ui.EnsureModelReadyAsync(settings, () => newChat(settings.SelectedModel!.ProfileName), title))
+    {
+        continue;
+    }
 
     switch (choice)
     {
@@ -86,7 +100,7 @@ while (true)
 
             break;
         case MainMenuOption.Settings:
-            await SettingsScreen.ShowAsync(settings, secrets);
+            await SettingsScreen.ShowAsync(settings, secrets, newChat);
             break;
         case MainMenuOption.Exit:
             AnsiConsole.MarkupLine("[grey]Booted off.[/]");

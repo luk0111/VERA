@@ -19,7 +19,7 @@ internal static partial class SettingsScreen
         Back,
     }
 
-    public static async Task ShowAsync(AppSettings settings, ISecretStore secrets)
+    public static async Task ShowAsync(AppSettings settings, ISecretStore secrets, Func<string, ChatSession> newChat)
     {
         while (true)
         {
@@ -48,10 +48,10 @@ internal static partial class SettingsScreen
             switch (option)
             {
                 case Option.ChooseModel:
-                    await ChooseModelAsync(settings, secrets);
+                    await ChooseModelAsync(settings, secrets, newChat);
                     break;
                 case Option.ConnectApi:
-                    await ConnectApiAsync(settings, secrets);
+                    await ConnectApiAsync(settings, secrets, newChat);
                     break;
                 case Option.SaveSecret:
                     await SaveSecretAsync(settings, secrets);
@@ -116,7 +116,7 @@ internal static partial class SettingsScreen
             .AddRow("Save screenshots", YesNo(settings.SaveScreenshots));
     }
 
-    private static async Task ChooseModelAsync(AppSettings settings, ISecretStore secrets)
+    private static async Task ChooseModelAsync(AppSettings settings, ISecretStore secrets, Func<string, ChatSession> newChat)
     {
         var choices = settings.ConfiguredModels.Select(m => new ModelChoice(m, null))
             .Concat(AppSettings.UpcomingModels.Select(name => new ModelChoice(null, name)))
@@ -150,13 +150,12 @@ internal static partial class SettingsScreen
         }
 
         settings.SelectedModel = chosen;
-        settings.ConnectionState = ConnectionState.Unknown;
-        settings.ConnectionDetail = "";
         await RefreshApiKeyStateAsync(settings, secrets);
         await UserSettingsStore.SaveSelectedProfileAsync(chosen.ProfileName, CancellationToken.None);
+        await Ui.CheckModelAsync(settings, newChat(chosen.ProfileName));
     }
 
-    private static async Task ConnectApiAsync(AppSettings settings, ISecretStore secrets)
+    private static async Task ConnectApiAsync(AppSettings settings, ISecretStore secrets, Func<string, ChatSession> newChat)
     {
         if (settings.SelectedModel is not { NeedsApiKey: true } model)
         {
@@ -191,9 +190,13 @@ internal static partial class SettingsScreen
         }
 
         settings.IsApiKeyConnected = true;
-        settings.ConnectionState = ConnectionState.Unknown;
-        settings.ConnectionDetail = "";
         AnsiConsole.MarkupLine("[green]API key saved to Windows Credential Manager.[/] [grey]It stays there for the next runs.[/]");
+        await Ui.CheckModelAsync(settings, newChat(model.ProfileName));
+        if (settings.ConnectionState != ConnectionState.Connected)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(settings.ConnectionDetail)}[/]");
+        }
+
         Ui.Pause();
     }
 
