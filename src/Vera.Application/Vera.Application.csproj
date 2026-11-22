@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
+    <ProjectReference Include="../Vera.Files/Vera.Files.csproj" />
     <ProjectReference Include="../Vera.Llm/Vera.Llm.csproj" />
     <ProjectReference Include="../Vera.Agent/Vera.Agent.csproj" />
     <ProjectReference Include="../Vera.Replay/Vera.Replay.csproj" />
@@ -28,6 +29,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vera.Application.Tests" />
+    <!-- Recorded steps are worded with ElementFinder.Describe, like Find. -->
+    <InternalsVisibleTo Include="Vera.Cli" />
   </ItemGroup>
 
 </Project>

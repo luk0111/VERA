@@ -47,6 +47,11 @@ internal sealed unsafe partial class Win32InputSink(ILogger<Win32InputSink> logg
         }),
         InputEventKind.MouseDown => Mouse(new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: true) }),
         InputEventKind.MouseUp => Mouse(new MOUSEINPUT { dwFlags = ButtonFlag(e.Button, down: false) }),
+        InputEventKind.MouseWheel => Mouse(new MOUSEINPUT
+        {
+            mouseData = unchecked((uint)e.Wheel),
+            dwFlags = e.Horizontal ? MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL : MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL,
+        }),
         InputEventKind.CharDown => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE),
         InputEventKind.CharUp => Keyboard(e.Char, KEYBD_EVENT_FLAGS.KEYEVENTF_UNICODE | KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP),
         InputEventKind.KeyDown => Keyboard(e.ScanCode, ScanCodeFlags(e)),

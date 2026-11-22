@@ -55,8 +55,7 @@ while (true)
         new SelectionPrompt<MainMenuOption>()
             .Title("What do you want to do?")
             .HighlightStyle(Ui.Highlight)
-            // Only the Windows adapter can click and type, so running steps is Windows-only for now.
-            .AddChoices(Enum.GetValues<MainMenuOption>().Where(o => o != MainMenuOption.RunSteps || OperatingSystem.IsWindows()))
+            .AddChoices(Enum.GetValues<MainMenuOption>())
             .UseConverter(option => option switch
             {
                 MainMenuOption.StartTesting => "Start testing an app",

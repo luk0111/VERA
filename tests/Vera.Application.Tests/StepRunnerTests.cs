@@ -100,6 +100,68 @@ public sealed class StepRunnerTests : IDisposable
         });
     }
 
+    [Theory]
+    [InlineData("scroll down 3 in the results", 3, 0)]
+    [InlineData("scroll up 2 in the results", -2, 0)]
+    [InlineData("scroll right 4 in the results", 0, 4)]
+    [InlineData("scroll left 1 in the results", 0, -1)]
+    public async Task A_scroll_step_scrolls_in_the_element_the_model_found(string line, int down, int right)
+    {
+        var result = await RunAsync(line);
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).ScrollAsync(3, down, right, Arg.Any<CancellationToken>());
+        result.Steps[0].Message.ShouldStartWith("scrolled ");
+        result.Steps[0].Message.ShouldEndWith("in link \"Results for cats\" (element 3)");
+    }
+
+    [Fact]
+    public async Task A_drag_step_drags_one_found_element_onto_the_other()
+    {
+        var result = await RunAsync("drag the results to the search box");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).DragAsync(3, 1, Arg.Any<CancellationToken>());
+        result.Steps[0].Message.ShouldBe("dragged link \"Results for cats\" (element 3) to field \"Search\" (element 1)");
+    }
+
+    [Fact]
+    public async Task A_drag_onto_the_element_itself_is_not_done()
+    {
+        ModelPoints("the results link", 3);
+
+        var result = await RunAsync("drag the results to the results link");
+
+        result.Steps[0].Outcome.ShouldBe(StepOutcome.NotDone);
+        await _adapter.DidNotReceiveWithAnyArgs().DragAsync(default, default, Ct);
+    }
+
+    [Fact]
+    public async Task A_drop_onto_a_risky_element_is_asked_first_like_a_click()
+    {
+        UiElement? asked = null;
+
+        var result = await RunAsync(["drag the results to the delete button"], e =>
+        {
+            asked = e;
+            return Task.FromResult(false);
+        });
+
+        asked.ShouldBe(Delete);
+        result.Steps[0].Message.ShouldBe("Stopped: dropping onto button \"Delete account\" wasn't approved.");
+        await _adapter.DidNotReceiveWithAnyArgs().DragAsync(default, default, Ct);
+    }
+
+    [Fact]
+    public async Task A_hover_step_rests_on_the_element_the_model_found()
+    {
+        var result = await RunAsync("hover over the search button");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).HoverAsync(2, Arg.Any<CancellationToken>());
+        result.Steps[0].Message.ShouldBe("hovered over button \"Search\" (element 2)");
+    }
+
     [Fact]
     public async Task A_secret_is_typed_but_never_shown()
     {

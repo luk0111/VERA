@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 using Vera.Core;
+using Vera.Files;
 using Vera.Llm;
 
 namespace Vera.Application.Tests;
@@ -30,6 +32,41 @@ public sealed class ApplicationServiceCollectionExtensionsTests
         session.ModelName.ShouldBe("qwen3-vl:8b");
         provider.GetRequiredService<ChatSession>().ShouldNotBeSameAs(session);
         provider.GetRequiredService<LocalModelInfo>().ShouldBe(new LocalModelInfo("Local", "qwen3-vl:8b"));
+    }
+
+    [Fact]
+    public void A_valid_configuration_registers_the_file_reader_with_the_default_limits()
+    {
+        using var provider = Build(ValidConfig);
+
+        provider.GetRequiredService<IFileReader>().ShouldNotBeNull();
+        provider.GetRequiredService<IOptions<FileAccessOptions>>().Value.ShouldBe(new FileAccessOptions());
+        provider.GetRequiredService<Func<string, ChatSession>>()("local").ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void The_Files_section_sets_the_limits_of_the_file_reader()
+    {
+        var config = new Dictionary<string, string?>(ValidConfig) { ["Files:MaxCharsPerRead"] = "9000", ["Files:MaxFileSizeMb"] = "7" };
+        using var provider = Build(config);
+
+        var options = provider.GetRequiredService<IOptions<FileAccessOptions>>().Value;
+
+        options.MaxCharsPerRead.ShouldBe(9000);
+        options.MaxFileSizeMb.ShouldBe(7);
+    }
+
+    [Theory]
+    [InlineData("Files:MaxCharsPerRead", "0")]
+    [InlineData("Files:MaxFileSizeMb", "-1")]
+    [InlineData("Files:MaxCharsPerReed", "4000")]
+    public void A_mistake_in_the_Files_section_is_a_configuration_error_at_start(string key, string value)
+    {
+        var config = new Dictionary<string, string?>(ValidConfig) { [key] = value };
+
+        var error = Should.Throw<VeraConfigurationException>(() => Build(config));
+
+        error.Message.ShouldStartWith("'Files' in appsettings.json:");
     }
 
     [Fact]

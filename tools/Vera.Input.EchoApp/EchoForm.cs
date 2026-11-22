@@ -4,17 +4,20 @@ namespace Vera.Input.EchoApp;
 
 /// <summary>
 /// A borderless window over the whole primary monitor (the one VERA captures by default). It lists the last mouse
-/// button events with their screen position and the characters it receives, and draws a crosshair where the last
-/// button went down. The typed text is shown on one line, cleared by a click. Esc closes it.
+/// button and wheel events with their screen position and the characters it receives, draws a crosshair where the last
+/// button went down and the path the mouse took while a button was held (a drag). The typed text is shown on one line,
+/// cleared by a click. Esc closes it.
 /// </summary>
 internal sealed class EchoForm : Form
 {
     private const int MaxEvents = 20;
+    private const int WmMouseHWheel = 0x020E;
 
     private readonly List<string> _events = [];
     private readonly StringBuilder _typed = new();
     private readonly Font _font = new("Consolas", 14);
     private Point? _lastDown;
+    private readonly List<Point> _dragPath = [];
     private char? _highSurrogate;
 
     public EchoForm()
@@ -33,6 +36,8 @@ internal sealed class EchoForm : Form
     {
         base.OnMouseDown(e);
         _lastDown = e.Location;
+        _dragPath.Clear();
+        _dragPath.Add(e.Location);
         _typed.Clear();
         _highSurrogate = null;
         Add("Down", e);
@@ -41,7 +46,43 @@ internal sealed class EchoForm : Form
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_dragPath.Count > 1)
+        {
+            AddLine($"Drag         {_dragPath.Count - 1} moves while held");
+        }
+
         Add("Up", e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (e.Button != MouseButtons.None && _dragPath.Count > 0)
+        {
+            _dragPath.Add(e.Location);
+            Invalidate();
+        }
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        AddWheel(e.Delta > 0 ? "up" : "down", e.Delta, PointToScreen(e.Location));
+    }
+
+    /// <summary>WinForms has no event for the horizontal wheel, so it is read from the window message.</summary>
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmMouseHWheel)
+        {
+            var delta = (short)((m.WParam.ToInt64() >> 16) & 0xFFFF);
+            var screen = new Point((short)(m.LParam.ToInt64() & 0xFFFF), (short)((m.LParam.ToInt64() >> 16) & 0xFFFF));
+            AddWheel(delta > 0 ? "right" : "left", delta, screen);
+            m.Result = 1;
+            return;
+        }
+
+        base.WndProc(ref m);
     }
 
     protected override void OnMouseDoubleClick(MouseEventArgs e)
@@ -100,9 +141,15 @@ internal sealed class EchoForm : Form
             g.DrawLine(pen, 0, p.Y, ClientSize.Width, p.Y);
         }
 
+        if (_dragPath.Count > 1)
+        {
+            using var path = new Pen(Color.DeepSkyBlue, 2);
+            g.DrawLines(path, _dragPath.ToArray());
+        }
+
         var lines = new List<string>
         {
-            $"VERA EchoApp on {Bounds.Width}×{Bounds.Height} at ({Bounds.X},{Bounds.Y}). Click anywhere or type. A click clears the text. Esc closes.",
+            $"VERA EchoApp on {Bounds.Width}×{Bounds.Height} at ({Bounds.X},{Bounds.Y}). Click, scroll, drag or type. A click clears the text. Esc closes.",
             "",
             $"Typed ({_typed.Length}): {Show(_typed.ToString())}",
             "",
@@ -145,6 +192,9 @@ internal sealed class EchoForm : Form
         var screen = PointToScreen(e.Location);
         AddLine($"{kind,-11}  {e.Button,-6}  screen ({screen.X},{screen.Y})");
     }
+
+    private void AddWheel(string direction, int delta, Point screen) =>
+        AddLine($"Wheel {direction,-6} {delta / 120.0:+0.##;-0.##} notch  screen ({screen.X},{screen.Y})");
 
     private void AddLine(string line)
     {

@@ -29,6 +29,35 @@ public sealed record PressStep(string Keys) : StepCommand
     public override string ToString() => $"press {Keys}";
 }
 
+/// <summary>Which way a <see cref="ScrollStep"/> scrolls.</summary>
+public enum ScrollDirection
+{
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// <summary>Scroll inside the element by <see cref="Notches"/> wheel notches, e.g. <c>scroll down 3 in the results list</c>.</summary>
+public sealed record ScrollStep(ScrollDirection Direction, int Notches, string Target) : StepCommand
+{
+    public override string ToString() => $"scroll {Direction.ToString().ToLowerInvariant()} {Notches} in {Target}";
+}
+
+/// <summary>Drag the element <see cref="Source"/> means and drop it on the one <see cref="Destination"/> means.</summary>
+public sealed record DragStep(string Source, string Destination) : StepCommand
+{
+    // The parser splits at the last " to ", so a destination with " to " in it is quoted to read back the same way.
+    public override string ToString() =>
+        $"drag {Source} to {(Destination.Contains(" to ", StringComparison.OrdinalIgnoreCase) ? Quote(Destination) : Destination)}";
+}
+
+/// <summary>Rest the pointer on the element so its tooltip or hover menu shows, e.g. <c>hover over the help icon</c>.</summary>
+public sealed record HoverStep(string Target) : StepCommand
+{
+    public override string ToString() => $"hover over {Target}";
+}
+
 /// <summary>Check that the element the description means is on the screen.</summary>
 public sealed record ExpectShownStep(string Target) : StepCommand
 {

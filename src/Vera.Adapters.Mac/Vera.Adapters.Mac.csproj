@@ -10,12 +10,15 @@
     <ProjectReference Include="../Vera.Core/Vera.Core.csproj" />
     <ProjectReference Include="../Vera.Input.Abstractions/Vera.Input.Abstractions.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Same filtering and numbering as Windows. The Windows project can't be referenced from here, so the files are shared. -->
     <Compile Include="../Vera.Adapters.Desktop/ElementNumbering.cs" Link="Shared/ElementNumbering.cs" />
     <Compile Include="../Vera.Adapters.Desktop/RawElement.cs" Link="Shared/RawElement.cs" />
+    <Compile Include="../Vera.Adapters.Desktop/ClickPoint.cs" Link="Shared/ClickPoint.cs" />
+    <Compile Include="../Vera.Adapters.Desktop/StepRecording.cs" Link="Shared/StepRecording.cs" />
   </ItemGroup>
 
   <ItemGroup>

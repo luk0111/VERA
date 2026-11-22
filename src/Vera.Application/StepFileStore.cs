@@ -32,6 +32,9 @@ public sealed partial class StepFileStore(string folder)
         return path;
     }
 
+    /// <summary>Deletes the saved file for good (not to the Recycle Bin). Nothing happens if there is none.</summary>
+    public void Delete(string name) => File.Delete(PathOf(name));
+
     /// <exception cref="FormatException">A line is not a step (the message names the line), or the file has no steps.</exception>
     public IReadOnlyList<StepCommand> Load(string name)
     {
