@@ -687,6 +687,7 @@ internal static class StepsScreen
         table.AddRow("type \"<text>\" into <what>", Markup.Escape("type \"cats\" into the search box"));
         table.AddRow("press <keys>", Markup.Escape("press enter, press ctrl+s"));
         table.AddRow("scroll <up|down|left|right> <notches> in <what>", Markup.Escape("scroll down 3 in the results list"));
+        table.AddRow("scroll <up|down|left|right> until <what>", Markup.Escape("scroll down until the orange cat"));
         table.AddRow("drag <what> to <where>", Markup.Escape("drag the report file to the Documents folder"));
         table.AddRow("hover over <what>", Markup.Escape("hover over the help icon"));
         table.AddRow("expect <what>", Markup.Escape("expect the results list"));

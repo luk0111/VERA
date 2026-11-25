@@ -7,7 +7,7 @@ namespace Vera.Application;
 /// Reads one line of a chain into a <see cref="StepCommand"/>. The first word is the command (any case); elements are described in plain words,
 /// and text to type or check goes in double quotes, with <c>\"</c> for a quote and <c>\\</c> for a backslash inside. Commands:
 /// <c>click the search button</c>, <c>type "cats" into the search box</c>, <c>press enter</c>,
-/// <c>scroll down 3 in the results list</c>, <c>drag the report file to the Documents folder</c>, <c>hover over the help icon</c>,
+/// <c>scroll down 3 in the results list</c>, <c>scroll down until the orange cat</c>, <c>drag the report file to the Documents folder</c>, <c>hover over the help icon</c>,
 /// <c>expect the results list</c>, <c>expect the search box contains "cats"</c>, <c>expect title contains "cats"</c>.
 /// </summary>
 public static partial class StepParser
@@ -18,6 +18,7 @@ public static partial class StepParser
     private const string TypeExample = "type \"cats\" into the search box";
     private const string ContainsExample = "expect the search box contains \"cats\"";
     private const string ScrollExample = "scroll down 3 in the results list";
+    private const string UntilExample = "scroll down until the orange cat";
     private const string DragExample = "drag the report file to the Documents folder";
     private const string HoverExample = "hover over the help icon";
     private const string Commands = "A step starts with click, type, press, scroll, drag, hover or expect.";
@@ -50,9 +51,17 @@ public static partial class StepParser
         };
     }
 
-    // scroll <up|down|left|right> <notches> in <element>: every part is needed.
-    private static ScrollStep ReadScroll(string rest)
+    // scroll <up|down|left|right> <notches> in <element>: every part is needed. Or scroll <direction> until <element>.
+    private static StepCommand ReadScroll(string rest)
     {
+        var until = UntilParts().Match(rest);
+        if (until.Success)
+        {
+            return new ScrollUntilStep(
+                Enum.Parse<ScrollDirection>(until.Groups["direction"].Value, ignoreCase: true),
+                Describe(until.Groups["target"].Value) ?? throw new FormatException($"Say what to scroll to, e.g. {UntilExample}."));
+        }
+
         var match = ScrollParts().Match(rest);
         if (!match.Success)
         {
@@ -202,6 +211,10 @@ public static partial class StepParser
 
     [GeneratedRegex(@"^(?<direction>up|down|left|right)\s+(?<notches>\d+)\s+in\s+(?<target>.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex ScrollParts();
+
+    // "until you see the cat" means "until the cat".
+    [GeneratedRegex(@"^(?<direction>up|down|left|right)\s+until(\s+(you|i|we)\s+(can\s+)?(see|find))?(\s+(?<target>.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    private static partial Regex UntilParts();
 
     [GeneratedRegex(@"\s+to\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ToBetween();

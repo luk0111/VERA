@@ -44,6 +44,12 @@ public sealed record ScrollStep(ScrollDirection Direction, int Notches, string T
     public override string ToString() => $"scroll {Direction.ToString().ToLowerInvariant()} {Notches} in {Target}";
 }
 
+/// <summary>Scroll the whole page a little at a time until the element shows, e.g. <c>scroll down until the orange cat</c>.</summary>
+public sealed record ScrollUntilStep(ScrollDirection Direction, string Target) : StepCommand
+{
+    public override string ToString() => $"scroll {Direction.ToString().ToLowerInvariant()} until {Target}";
+}
+
 /// <summary>Drag the element <see cref="Source"/> means and drop it on the one <see cref="Destination"/> means.</summary>
 public sealed record DragStep(string Source, string Destination) : StepCommand
 {

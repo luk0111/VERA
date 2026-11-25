@@ -25,6 +25,12 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     /// <summary>How long a step waits for the app before it gives up.</summary>
     public static readonly TimeSpan DefaultWait = TimeSpan.FromSeconds(5);
 
+    /// <summary>How often <see cref="ScrollUntilStep"/> scrolls before it gives up. Each time can cost one question to the model.</summary>
+    internal const int MaxScrolls = 10;
+
+    // Before VERA knows how far one notch moves this app: little enough not to jump past anything.
+    internal const int FirstNotches = 3;
+
     private readonly TimeSpan _wait = wait ?? DefaultWait;
 
     /// <param name="approveRisky">Asked before clicking an element with a risky name (<see cref="RiskyWords"/>); false stops the run. Null clicks without asking.</param>
@@ -176,6 +182,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done,
                         $"scrolled {scroll.Direction.ToString().ToLowerInvariant()} {scroll.Notches} in {(wholeWindow ? "the window" : $"{ElementFinder.Describe(area)} (element {area.Id})")}");
 
+                case ScrollUntilStep until:
+                    return await ScrollUntilAsync(until).ConfigureAwait(false);
+
                 case DragStep drag:
                     var dragged = await UsableAsync(drag.Source).ConfigureAwait(false);
                     var drop = await FoundAsync(drag.Destination).ConfigureAwait(false);
@@ -247,6 +256,73 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     throw new NotSupportedException($"VERA can't run \"{step}\" yet.");
             }
         }
+
+        // Looks, scrolls the window a little and looks again, until the model sees the element, the page ends, or MaxScrolls.
+        // The model is asked only when the elements changed.
+        private async Task<(StepOutcome, string)> ScrollUntilAsync(ScrollUntilStep until)
+        {
+            var direction = until.Direction.ToString().ToLowerInvariant();
+            var vertical = until.Direction is ScrollDirection.Up or ScrollDirection.Down;
+            var sign = until.Direction is ScrollDirection.Down or ScrollDirection.Right ? 1 : -1;
+            var notches = FirstNotches;
+            string? asked = null;
+            var reason = "";
+            await SettleAsync().ConfigureAwait(false);
+            for (var scrolls = 0; ; scrolls++)
+            {
+                if (_screen!.Elements.Count == 0)
+                {
+                    throw new StepNotDoneException(ElementFinder.NoElementsReason);
+                }
+
+                var before = _screen;
+                var seen = ElementFinder.Seen(before);
+                if (seen != asked)
+                {
+                    asked = seen;
+                    (_element, reason) = await ElementFinder.FindAsync(runner.Llm, before, target, until.Target, ct, mustMatch: true).ConfigureAwait(false);
+                    if (_element is not null)
+                    {
+                        var times = scrolls == 0 ? "without scrolling" : $"after scrolling {direction} {Times(scrolls)}";
+                        return (StepOutcome.Done, $"found {ElementFinder.Describe(_element)} {times} (element {_element.Id})");
+                    }
+                }
+
+                if (scrolls == MaxScrolls)
+                {
+                    throw new StepNotDoneException($"I scrolled {direction} {Times(scrolls)} and can't find {StepCommand.Quote(until.Target)}.{Because(reason)}");
+                }
+
+                await adapter.ScrollAsync(0, vertical ? sign * notches : 0, vertical ? 0 : sign * notches, ct).ConfigureAwait(false);
+                await runner.PauseAsync(ct).ConfigureAwait(false);
+                _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+
+                // Same elements in the same places, and the same picture: there is nothing more that way.
+                if (ElementFinder.Seen(_screen) == seen && _screen.ScreenshotPng.Span.SequenceEqual(before.ScreenshotPng.Span))
+                {
+                    throw new StepNotDoneException(scrolls == 0
+                        ? $"I can't find {StepCommand.Quote(until.Target)}, and the window doesn't scroll {direction}.{Because(reason)}"
+                        : $"I scrolled {direction} to the end and can't find {StepCommand.Quote(until.Target)}.{Because(reason)}");
+                }
+
+                notches = ScrollDistance.Next(before, _screen, vertical, notches);
+            }
+        }
+
+        // A page that is still opening would be scrolled before its top is there. Waits until two readings show the same; no model call.
+        private async Task SettleAsync()
+        {
+            string before;
+            do
+            {
+                before = ElementFinder.Seen(_screen!);
+            }
+            while (await ReadAgainAsync().ConfigureAwait(false) && ElementFinder.Seen(_screen!) != before);
+        }
+
+        private static string Because(string reason) => reason.Length == 0 ? "" : $" The model's last answer: {reason}";
+
+        private static string Times(int count) => count == 1 ? "once" : string.Create(CultureInfo.InvariantCulture, $"{count} times");
 
         // The element the model picks for the description, waiting for the app until it's there and ready; or why there is none.
         // The model is asked only when the window's elements changed since it was last asked; the element it found is followed without it.

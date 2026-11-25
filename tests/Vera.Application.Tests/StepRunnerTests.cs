@@ -141,6 +141,47 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Theory]
+    [InlineData(0, 0)]
+    [InlineData(700, 10)]
+    [InlineData(1500, 40)]
+    [InlineData(350, 100)]
+    [InlineData(900, 100)]
+    public async Task Scroll_until_stops_when_the_element_shows(int catAt, int pixelsPerNotch)
+    {
+        var page = new Page(pageHeight: 2400, pixelsPerNotch, catAt, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat", "hover over the orange cat");
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        result.Steps[0].Message.ShouldStartWith("found link \"Orange cat\" ");
+        page.Scrolls.ShouldBeLessThanOrEqualTo(StepRunner.MaxScrolls);
+        await _adapter.ReceivedWithAnyArgs(1).HoverAsync(default, Ct);
+    }
+
+    [Fact]
+    public async Task Scroll_until_moves_less_than_a_window_at_a_time_once_it_knows_the_distance()
+    {
+        var page = new Page(pageHeight: 2400, pixelsPerNotch: 10, catAt: 1500, _adapter, _llm);
+
+        await RunAsync("scroll down until the orange cat");
+
+        page.Notches[0].ShouldBe(StepRunner.FirstNotches);
+        page.Notches.Skip(1).ShouldAllBe(n => n == 18);
+    }
+
+    [Fact]
+    public async Task Scroll_until_first_waits_for_a_page_that_is_still_opening()
+    {
+        ScreensShow(Screen("Old", Window, Delete), Screen("Shop", Window, SearchBox), Screen("Shop", Window, SearchBox, SearchButton, Results));
+
+        var result = await RunWaitingAsync("scroll down until the results");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(1);
+        await _adapter.DidNotReceiveWithAnyArgs().ScrollAsync(default, default, default, Ct);
+    }
+
+    [Theory]
     [InlineData(AgentActionType.Done)]
     [InlineData(AgentActionType.Wait)]
     public async Task A_field_that_already_has_the_focus_is_found_when_the_model_first_says_done(AgentActionType first)
@@ -157,6 +198,7 @@ public sealed class StepRunnerTests : IDisposable
 
     [Theory]
     [InlineData("expect the results", true)]
+    [InlineData("scroll down until the results", true)]
     [InlineData("click the results", false)]
     public async Task A_check_or_a_search_must_match_and_not_be_the_closest_thing(string line, bool mustMatch)
     {
@@ -172,6 +214,40 @@ public sealed class StepRunnerTests : IDisposable
     {
         await RunAsync("click the moon");
 
+        await ModelWasAsked(1);
+    }
+
+    [Fact]
+    public async Task Scroll_until_stops_at_the_end_of_the_page()
+    {
+        var page = new Page(pageHeight: 700, pixelsPerNotch: 50, catAt: null, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat", "press enter");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps.ShouldHaveSingleItem().Message.ShouldBe("I scrolled down to the end and can't find \"the orange cat\". The model's last answer: No cat");
+        page.Scrolls.ShouldBeLessThan(StepRunner.MaxScrolls);
+    }
+
+    [Fact]
+    public async Task Scroll_until_gives_up_on_a_page_without_end()
+    {
+        var page = new Page(pageHeight: 1_000_000, pixelsPerNotch: 10, catAt: null, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat");
+
+        result.Steps[0].Message.ShouldBe("I scrolled down 10 times and can't find \"the orange cat\". The model's last answer: No cat");
+        page.Scrolls.ShouldBe(StepRunner.MaxScrolls);
+        await ModelWasAsked(StepRunner.MaxScrolls + 1);
+    }
+
+    [Fact]
+    public async Task Scroll_until_says_when_the_window_does_not_scroll_and_asks_the_model_once()
+    {
+        var result = await RunAsync("scroll up until the orange cat");
+
+        result.Steps[0].Message.ShouldBe("I can't find \"the orange cat\", and the window doesn't scroll up. The model's last answer: There is no such element.");
+        await _adapter.Received(1).ScrollAsync(0, -StepRunner.FirstNotches, 0, Arg.Any<CancellationToken>());
         await ModelWasAsked(1);
     }
 
@@ -568,6 +644,57 @@ public sealed class StepRunnerTests : IDisposable
         using var image = SKImage.FromBitmap(bitmap);
         using var png = image.Encode(SKEncodedImageFormat.Png, 100);
         _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(new ScreenState("Shop - cats", elements, png.ToArray(), []));
+    }
+
+    // A page taller than the window (300), with a toolbar that stays, a link every 50 pixels, two links that can be mixed up, and perhaps the cat.
+    private sealed class Page
+    {
+        private int _offset;
+
+        public Page(int pageHeight, int pixelsPerNotch, int? catAt, IAppAdapter adapter, ILlmClient llm)
+        {
+            adapter.ScrollAsync(Arg.Is(0), Arg.Any<int>(), Arg.Is(0), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                Notches.Add(call.ArgAt<int>(1));
+                _offset = Math.Clamp(_offset + (call.ArgAt<int>(1) * pixelsPerNotch), 0, pageHeight - Window.Bounds.Height);
+                return Task.CompletedTask;
+            });
+            adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                List<UiElement> elements = [Window, Link(1, "Toolbar", 0)];
+                for (var y = 0; y < pageHeight; y += 50)
+                {
+                    Add(elements, y % 200 == 0 ? "edit" : $"Link {y}", y - _offset);
+                }
+
+                if (catAt is { } at)
+                {
+                    Add(elements, "Orange cat", at - _offset);
+                }
+
+                return new ScreenState("Shop - cats", elements, ReadOnlyMemory<byte>.Empty, []);
+            });
+            llm.DecideNextActionAsync(
+                    Arg.Is<TestTask>(t => t.Description == "Click the orange cat"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+                .Returns(call => call.ArgAt<ScreenState>(1).Elements.FirstOrDefault(e => e.Name == "Orange cat") is { } cat
+                    ? new AgentAction(AgentActionType.Click, cat.Id, null, "Found it")
+                    : new AgentAction(AgentActionType.Fail, null, null, "No cat"));
+        }
+
+        public List<int> Notches { get; } = [];
+
+        public int Scrolls => Notches.Count;
+
+        private static void Add(List<UiElement> elements, string name, int y)
+        {
+            if (y is >= 0 and < 300)
+            {
+                elements.Add(Link(elements.Count, name, y));
+            }
+        }
+
+        private static UiElement Link(int id, string name, int y) =>
+            new(id, "Hyperlink", name, new ScreenRect(110, 100 + y, 200, 20), true, $"Hyperlink:{name}");
     }
 
     private sealed class ListProgress : IProgress<StepResult>

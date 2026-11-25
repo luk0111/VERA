@@ -64,6 +64,24 @@ public sealed class StepParserTests
         StepParser.Parse(line).ShouldBe(new ScrollStep(direction, notches, target));
 
     [Theory]
+    [InlineData("scroll down until the orange cat", ScrollDirection.Down, "the orange cat")]
+    [InlineData("Scroll UP until you see the title", ScrollDirection.Up, "the title")]
+    [InlineData("scroll right until \"the last column\"", ScrollDirection.Right, "the last column")]
+    public void Scroll_until_has_a_direction_and_an_element(string line, ScrollDirection direction, string target)
+    {
+        var step = StepParser.Parse(line);
+
+        step.ShouldBe(new ScrollUntilStep(direction, target));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Theory]
+    [InlineData("scroll down until")]
+    [InlineData("scroll down until you see")]
+    public void Scroll_until_needs_an_element(string line) =>
+        Should.Throw<FormatException>(() => StepParser.Parse(line)).Message.ShouldBe("Say what to scroll to, e.g. scroll down until the orange cat.");
+
+    [Theory]
     [InlineData("drag the report file to the Documents folder", "the report file", "the Documents folder")]
     [InlineData("drag the Go to button to the toolbar", "the Go to button", "the toolbar")]
     [InlineData("drag the file to \"the Go to button\"", "the file", "the Go to button")]
