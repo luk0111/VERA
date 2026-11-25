@@ -25,6 +25,34 @@ public static class ElementHighlight
             canvas.DrawRect(element.X - window.X, element.Y - window.Y, element.Width, element.Height, red);
         }
 
+        return Encode(bitmap);
+    }
+
+    /// <summary>Paints <paramref name="areas"/> black, e.g. fields that hold a typed secret, so nobody can read them on the picture.</summary>
+    /// <param name="png">A screenshot of exactly <paramref name="window"/>.</param>
+    /// <param name="window">The screenshot's area in screen pixels.</param>
+    /// <param name="areas">The areas in screen pixels.</param>
+    /// <returns>A PNG of the same size.</returns>
+    public static byte[] Cover(ReadOnlyMemory<byte> png, ScreenRect window, IEnumerable<ScreenRect> areas)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentNullException.ThrowIfNull(areas);
+
+        using var bitmap = SKBitmap.Decode(png.ToArray());
+        using (var canvas = new SKCanvas(bitmap))
+        using (var black = new SKPaint { Color = SKColors.Black, Style = SKPaintStyle.Fill })
+        {
+            foreach (var area in areas)
+            {
+                canvas.DrawRect(area.X - window.X, area.Y - window.Y, area.Width, area.Height, black);
+            }
+        }
+
+        return Encode(bitmap);
+    }
+
+    private static byte[] Encode(SKBitmap bitmap)
+    {
         using var image = SKImage.FromBitmap(bitmap);
         using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         return encoded.ToArray();

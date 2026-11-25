@@ -18,7 +18,8 @@ namespace Vera.Application;
 /// <param name="pause">How long the app gets to react after each click, type or key press.</param>
 /// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
 /// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step. Null leaves the app in front.</param>
-public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null)
+/// <param name="apiKeyNames">The secrets that hold VERA's own model API keys. A <c>type</c> step that names one is not done: they never go into the app.</param>
+public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null, IReadOnlyCollection<string>? apiKeyNames = null)
 {
     /// <summary>The pause after each action in the app.</summary>
     public static readonly TimeSpan DefaultPause = TimeSpan.FromSeconds(1);
@@ -61,6 +62,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         // The tester just started the run, so VERA's window is in front.
         var asksIn = front?.Current();
         Run? opener = null;
+        var trail = new SecretTrail();
 
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
@@ -82,7 +84,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 try
                 {
                     ct.ThrowIfCancellationRequested();
-                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, ct);
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, trail, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
 
                     // A step may turn what the stop interrupted into its own failure; it's still the tester's stop.
@@ -137,7 +139,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, SecretTrail trail, CancellationToken ct)
     {
         private StepCommand Step => step;
 
@@ -152,7 +154,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             try
             {
                 _clock.Start();
-                _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+                _screen = await ReadAsync().ConfigureAwait(false);
                 (outcome, message) = await DoStepAsync().ConfigureAwait(false);
             }
             catch (StepNotDoneException e)
@@ -204,7 +206,18 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         throw new StepNotDoneException($"{ElementFinder.Describe(field)} can't take text. Describe the field or text area to type into.");
                     }
 
+                    var names = SecretPlaceholder.FindNames(type.Text);
+                    if (names.FirstOrDefault(n => runner.ApiKeyNames.Contains(n, StringComparer.OrdinalIgnoreCase)) is { } apiKey)
+                    {
+                        throw new StepNotDoneException($"\"{apiKey}\" is VERA's model API key, not a test secret. Save the app's own secret in Settings under another name.");
+                    }
+
                     var text = await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
+                    foreach (var name in names)
+                    {
+                        trail.Typed(field, await runner.Secrets.GetAsync(name, ct).ConfigureAwait(false) ?? "");
+                    }
+
                     await adapter.TypeAsync(field.Id, text, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
@@ -332,9 +345,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 throw new StepNotDoneException($"Stopped: {doing} wasn't approved.");
             }
 
-            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            _screen = await ReadAsync().ConfigureAwait(false);
             await runner.PauseAsync(ct).ConfigureAwait(false);
-            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            _screen = await ReadAsync().ConfigureAwait(false);
         }
 
         // A menu closes when its app is no longer in front. Then what opened it is done once more, but only for a menu:
@@ -357,7 +370,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 _clock.Restart();
                 do
                 {
-                    _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+                    _screen = await ReadAsync().ConfigureAwait(false);
                 }
                 while (ElementFinder.Same(_screen.Elements, element) is null && await ReadAgainAsync().ConfigureAwait(false));
             }
@@ -465,7 +478,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         {
             await adapter.ScrollAsync(0, vertical ? notches : 0, vertical ? 0 : notches, ct).ConfigureAwait(false);
             await runner.PauseAsync(ct).ConfigureAwait(false);
-            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            _screen = await ReadAsync().ConfigureAwait(false);
         }
 
         // A page that is still opening would be scrolled before its top is there. Waits until two readings show the same; no model call.
@@ -532,7 +545,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
 
             await Task.Delay(runner.ReadEvery, ct).ConfigureAwait(false);
-            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            _screen = await ReadAsync().ConfigureAwait(false);
             return true;
         }
 
@@ -554,6 +567,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
             return element.IsEnabled ? element : throw new StepNotDoneException($"{ElementFinder.Describe(element)} is disabled.");
         }
+
+        // Every reading goes through here: a secret typed earlier in the run is taken out before the model, a message or a screenshot sees it.
+        private async Task<ScreenState> ReadAsync() => trail.Hide(await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
 
         // The screen the step saw, with its element boxed when there is one.
         private async Task<string?> SaveAsync()
@@ -578,6 +594,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     private ISecretStore Secrets => secrets;
 
     private IFrontWindow? Front => front;
+
+    private IReadOnlyCollection<string> ApiKeyNames => apiKeyNames ?? [];
 
     // A step VERA can't do; the message is shown to the tester.
     private sealed class StepNotDoneException(string message) : Exception(message);

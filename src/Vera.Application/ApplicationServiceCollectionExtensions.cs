@@ -66,6 +66,7 @@ public static class ApplicationServiceCollectionExtensions
             .ToList());
         CheckFilesSection(config);
         services.AddVeraFiles(config);
+        string[] apiKeyNames = [.. profiles.Select(p => p.ApiKeyName).Where(n => !string.IsNullOrWhiteSpace(n))];
         services.AddTransient<ChatSession>();
         services.AddSingleton<Func<string, ChatSession>>(sp => name => new ChatSession(
             sp.GetRequiredKeyedService<IChatClient>(name),
@@ -88,10 +89,10 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames));
         services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames));
         services.AddSingleton(new StepFileStore("steps"));
         return services;
     }
