@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Spectre.Console;
 using Vera.Application;
 using Vera.Core;
@@ -7,10 +8,10 @@ using Vera.Core;
 namespace Vera.Cli.Screens;
 
 /// <summary>
-/// Find, while writing steps: ask where something is in the app. VERA answers in one line and opens a screenshot with the element boxed.
+/// Find, in the chat and while writing steps: ask where something is in the app. VERA answers in one line and opens a screenshot with the element boxed.
 /// What was found can be added as a step, which only saves it, or used at once: clicked, or typed into when it is a text field.
 /// </summary>
-internal static class FindInSteps
+internal static partial class FindInSteps
 {
     public const string Command = "find";
     private const string ExitCommand = "/back";
@@ -23,13 +24,32 @@ internal static class FindInSteps
         return word.Equals(Command, StringComparison.OrdinalIgnoreCase) ? (space < 0 ? "" : line[space..].Trim().Trim('"').Trim()) : null;
     }
 
-    /// <returns>The step the tester chose to add, null when they added none.</returns>
-    public static async Task<StepCommand?> RunAsync(AppSettings settings, RunningApp app, FindElementService service, string what)
+    /// <summary>
+    /// The same in the chat, where "find" is also an ordinary word: <c>/find …</c>, or a line like <c>find the search button</c>. Null for anything else, e.g. a question about a file, a search for bugs, or a test that starts with finding something.
+    /// </summary>
+    public static string? AskedInChat(string message)
+    {
+        if (message.StartsWith('/'))
+        {
+            return Asked(message[1..]);
+        }
+
+        return ChatFind().IsMatch(message) && !NotForFind().IsMatch(message) ? Asked(message) : null;
+    }
+
+    [GeneratedRegex(@"^find\s+(the|a|an)\s+\S", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ChatFind();
+
+    [GeneratedRegex(@"\b(files?|pdf|text|document|bugs?|problems?|issues?|and|then)\b|\?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NotForFind();
+
+    /// <returns>The step the tester chose to add, null when they added none; and whether VERA clicked or typed in the app.</returns>
+    public static async Task<(StepCommand? Step, bool Acted)> RunAsync(AppSettings settings, RunningApp app, FindElementService service, string what)
     {
         if (what.Length == 0)
         {
             AnsiConsole.MarkupLine($"[yellow]Say what to find, e.g. {Command} the search button.[/]");
-            return null;
+            return (null, false);
         }
 
         FindResult result;
@@ -42,7 +62,7 @@ internal static class FindInSteps
 #pragma warning restore CA1031
         {
             Ui.ShowError(settings, e);
-            return null;
+            return (null, false);
         }
 
         if (result.Element is { } element)
@@ -61,10 +81,10 @@ internal static class FindInSteps
 
         AnsiConsole.MarkupLine($"[grey]Saved: {Markup.Escape(result.ImagePath)}[/]");
         Open(result.ImagePath);
-        return result.Element is { } found ? await ChooseAsync(settings, app, service, result, found, what) : null;
+        return result.Element is { } found ? await ChooseAsync(settings, app, service, result, found, what) : (null, false);
     }
 
-    private static async Task<StepCommand?> ChooseAsync(
+    private static async Task<(StepCommand? Step, bool Acted)> ChooseAsync(
         AppSettings settings, RunningApp app, FindElementService service, FindResult result, UiElement found, string what)
     {
         var acceptsText = FindElementService.AcceptsText(found);
@@ -99,16 +119,16 @@ internal static class FindInSteps
         switch (action)
         {
             case FoundAction.AddClick:
-                return Added(FoundStep.Click(result, what));
+                return (Added(FoundStep.Click(result, what)), false);
             case FoundAction.AddExpect:
-                return Added(FoundStep.Expect(result, what));
+                return (Added(FoundStep.Expect(result, what)), false);
             case FoundAction.AddType:
-                return AskText() is { } stepText ? Added(FoundStep.Type(result, what, stepText)) : null;
+                return (AskText() is { } stepText ? Added(FoundStep.Type(result, what, stepText)) : null, false);
             case FoundAction.ClickNow:
                 if (settings.AskBeforeRiskyActions && FindElementService.IsRisky(found)
                     && !AnsiConsole.Confirm($"[yellow]\"{Markup.Escape(found.Name)}\" may change or send something. Click it?[/]", defaultValue: false))
                 {
-                    return null;
+                    return (null, false);
                 }
 
                 await ActAsync(
@@ -116,12 +136,12 @@ internal static class FindInSteps
                     "click it",
                     () => service.ClickAsync(app.Id, app.WindowTitle, found, CancellationToken.None),
                     clicked => $"Clicked \"{clicked.Name}\".");
-                return null;
+                return (null, true);
             case FoundAction.TypeNow:
                 await TypeNowAsync(app, service, found);
-                return null;
+                return (null, true);
             default:
-                return null;
+                return (null, false);
         }
     }
 

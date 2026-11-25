@@ -59,7 +59,6 @@ while (true)
             .UseConverter(option => option switch
             {
                 MainMenuOption.StartTesting => "Start testing an app",
-                MainMenuOption.FindAndRunSteps => "Find and run steps in an app",
                 MainMenuOption.Settings => "Settings",
                 MainMenuOption.Exit => "Exit",
                 _ => option.ToString(),
@@ -69,7 +68,6 @@ while (true)
     var title = choice switch
     {
         MainMenuOption.StartTesting => "Start testing an app",
-        MainMenuOption.FindAndRunSteps => "Find and run steps in an app",
         _ => null,
     };
     if (title is not null && !await Ui.EnsureModelReadyAsync(settings, () => newChat(settings.SelectedModel!.ProfileName), title))
@@ -81,15 +79,8 @@ while (true)
     {
         case MainMenuOption.StartTesting:
             await StartTestScreen.ShowAsync(
-                settings, runningApps, () => newChat(settings.SelectedModel!.ProfileName), services.GetRequiredService<ChatAppContextReader>());
-            break;
-        case MainMenuOption.FindAndRunSteps:
-            if (ProcessPicker.Pick(settings, runningApps, "Find and run steps in an app") is { } app)
-            {
-                var profile = settings.SelectedModel!.ProfileName;
-                await StepsScreen.ShowAsync(settings, app, newFind(profile), newSteps(profile), stepFiles);
-            }
-
+                settings, runningApps, () => newChat(settings.SelectedModel!.ProfileName), services.GetRequiredService<ChatAppContextReader>(),
+                () => newFind(settings.SelectedModel!.ProfileName), () => newSteps(settings.SelectedModel!.ProfileName), stepFiles);
             break;
         case MainMenuOption.Settings:
             await SettingsScreen.ShowAsync(settings, secrets, newChat);
@@ -103,7 +94,6 @@ while (true)
 internal enum MainMenuOption
 {
     StartTesting,
-    FindAndRunSteps,
     Settings,
     Exit,
 }
