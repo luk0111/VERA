@@ -271,6 +271,21 @@ public sealed class DesktopAdapterActingTests
         (await FieldTextAsync(adapter)).ShouldBe("ab");
     });
 
+    // A real Esc can only be pressed by hand; VERA's own (a "press esc" step) must not stop the run.
+    [Fact]
+    public Task An_esc_pressed_by_VERA_does_not_stop_the_run() => WithCharacterMapAsync(async (adapter, _) =>
+    {
+        var stopped = false;
+        await adapter.GetScreenStateAsync(Ct);
+        using (await StopKey.StartAsync(() => stopped = true))
+        {
+            await adapter.PressKeyAsync("esc", Ct);
+            await Task.Delay(300, Ct);
+        }
+
+        stopped.ShouldBeFalse();
+    });
+
     [Fact]
     public Task An_element_not_on_the_latest_screen_is_refused() => WithCharacterMapAsync(async (adapter, _) =>
     {

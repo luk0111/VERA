@@ -29,10 +29,12 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     /// <param name="approveRisky">Asked before clicking an element with a risky name (<see cref="RiskyWords"/>); false stops the run. Null clicks without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
+    /// <param name="ct">The tester's stop: cancelling it ends the run at once with <see cref="StepRunResult.StoppedByTester"/>, not an exception.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     /// <remarks>
     /// An error that isn't about one step, e.g. the model can't be reached, ends the run: the result keeps the steps finished so far,
     /// the verdict is <see cref="Verdict.Inconclusive"/>, and <see cref="StepRunResult.StoppedBy"/> holds the error.
+    /// A stop by the tester works the same way, without an error.
     /// </remarks>
     public async Task<StepRunResult> RunAsync(
         int processId,
@@ -47,21 +49,43 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
         var results = new List<StepResult>();
         Exception? stoppedBy = null;
+        var stoppedByTester = false;
 
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
         {
-            await adapter.StartAsync(target, ct).ConfigureAwait(false);
-            for (var i = 0; i < steps.Count; i++)
+            try
+            {
+                await adapter.StartAsync(target, ct).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // Whatever the stop interrupted, the tester asked for it; nothing ran yet.
+            catch (Exception) when (ct.IsCancellationRequested)
+#pragma warning restore CA1031
+            {
+                stoppedByTester = true;
+            }
+
+            for (var i = 0; i < steps.Count && !stoppedByTester; i++)
             {
                 StepResult result;
                 try
                 {
+                    ct.ThrowIfCancellationRequested();
                     var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
+
+                    // A step may turn what the stop interrupted into its own failure; it's still the tester's stop.
+                    ct.ThrowIfCancellationRequested();
                 }
-#pragma warning disable CA1031 // Any error outside one step's own failures ends the run; the caller gets the steps done so far and the error.
-                catch (Exception e) when (!ct.IsCancellationRequested)
+#pragma warning disable CA1031 // The tester stopped the run: the step that was running is dropped, the steps done so far are kept.
+                catch (Exception) when (ct.IsCancellationRequested)
+                {
+                    stoppedByTester = true;
+                    break;
+                }
+
+                // Any error outside one step's own failures ends the run; the caller gets the steps done so far and the error.
+                catch (Exception e)
 #pragma warning restore CA1031
                 {
                     stoppedBy = e;
@@ -77,13 +101,13 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
         }
 
-        var verdict = stoppedBy is not null ? Verdict.Inconclusive : results.LastOrDefault()?.Outcome switch
+        var verdict = stoppedBy is not null || stoppedByTester ? Verdict.Inconclusive : results.LastOrDefault()?.Outcome switch
         {
             StepOutcome.CheckFailed => Verdict.Failed,
             StepOutcome.NotDone => Verdict.Inconclusive,
             _ => Verdict.Passed,
         };
-        return new StepRunResult(verdict, results, folder, stoppedBy);
+        return new StepRunResult(verdict, results, folder, stoppedBy, stoppedByTester);
     }
 
     private Task PauseAsync(CancellationToken ct) => pause > TimeSpan.Zero ? Task.Delay(pause, ct) : Task.CompletedTask;
