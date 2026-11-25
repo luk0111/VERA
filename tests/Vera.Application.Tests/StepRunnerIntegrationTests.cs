@@ -78,7 +78,7 @@ public sealed class StepRunnerIntegrationTests : IDisposable
 
     private Task<StepRunResult> RunAsync(Process charmap, params string[] lines) =>
         new StepRunner(RealAdapters(), new NameModel(), Substitute.For<ISecretStore>(), _output, TimeSpan.FromMilliseconds(300))
-            .RunAsync(charmap.Id, "Character Map", [.. lines.Select(l => StepParser.Parse(l)!)], null, null, Ct);
+            .RunAsync(charmap.Id, "Character Map", [.. lines.Select(l => StepParser.Parse(l)!)], null, null, null, Ct);
 
     // The field's text, read with a fresh adapter. The RichEdit field ends with an end-of-text "\r" while it has the focus.
     private static async Task<string> FieldTextAsync(Process charmap)
