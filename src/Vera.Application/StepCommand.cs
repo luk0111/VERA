@@ -67,7 +67,22 @@ public sealed record HoverStep(string Target) : StepCommand
 /// <summary>Check that the element the description means is on the screen.</summary>
 public sealed record ExpectShownStep(string Target) : StepCommand
 {
-    public override string ToString() => $"expect {Target}";
+    // "expect no results" means something else, so a name that starts with "no" keeps its quotes.
+    public override string ToString() => $"expect {(Target.StartsWith("no ", StringComparison.OrdinalIgnoreCase) ? Quote(Target) : Target)}";
+}
+
+/// <summary>Check that the element is not on the screen, e.g. <c>expect no delete button</c>.</summary>
+public sealed record ExpectGoneStep(string Target) : StepCommand
+{
+    public override string ToString() => $"expect no {Target}";
+
+    /// <summary>
+    /// Why a step that checks that something is shown can't be right: its words say it's gone, e.g. <c>expect the note to be deleted</c>.
+    /// The model would point at the note that is still there, and the check would pass. Null for any other step.
+    /// </summary>
+    public static string? Problem(StepCommand step) => step is ExpectShownStep shown && StepParser.MeansGone(shown.Target)
+        ? "To check that something is gone, write expect no and what it is, e.g. expect no \"Shopping\" note."
+        : null;
 }
 
 /// <summary>Check that the element's text contains <see cref="Text"/>.</summary>

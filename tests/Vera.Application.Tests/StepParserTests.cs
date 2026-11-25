@@ -111,6 +111,39 @@ public sealed class StepParserTests
         StepParser.Parse(line).ShouldBe(new ClickStep(target));
 
     [Theory]
+    [InlineData("expect no delete button", "delete button")]
+    [InlineData("Expect NO \"Shopping\" note", "\"Shopping\" note")]
+    public void Expect_no_checks_that_something_is_gone(string line, string target)
+    {
+        var step = StepParser.Parse(line);
+
+        step.ShouldBe(new ExpectGoneStep(target));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Fact]
+    public void A_name_that_starts_with_no_keeps_its_meaning_when_saved()
+    {
+        var step = StepParser.Parse("expect \"No results\"");
+
+        step.ShouldBe(new ExpectShownStep("No results"));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Theory]
+    [InlineData("expect the note to be deleted", true)]
+    [InlineData("expect the note is gone", true)]
+    [InlineData("expect the dialog has been closed", true)]
+    [InlineData("expect the note is not shown", true)]
+    [InlineData("expect the menu disappears", true)]
+    [InlineData("expect the Recently Deleted folder", false)]
+    [InlineData("expect the Close button", false)]
+    [InlineData("expect the Closed tab", false)]
+    [InlineData("expect no note", false)]
+    public void A_check_that_says_something_is_gone_is_a_problem(string line, bool problem) =>
+        (ExpectGoneStep.Problem(StepParser.Parse(line)!) is not null).ShouldBe(problem);
+
+    [Theory]
     [InlineData("scroll down until the orange cat", ScrollDirection.Down, "the orange cat")]
     [InlineData("Scroll UP until you see the title", ScrollDirection.Up, "the title")]
     [InlineData("scroll right until \"the last column\"", ScrollDirection.Right, "the last column")]

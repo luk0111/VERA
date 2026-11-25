@@ -8,7 +8,7 @@ namespace Vera.Application;
 /// and text to type or check goes in double quotes, with <c>\"</c> for a quote and <c>\\</c> for a backslash inside. Commands:
 /// <c>click the search button</c>, <c>type "cats" into the search box</c>, <c>press enter</c>,
 /// <c>scroll down 3 in the results list</c>, <c>scroll down until the orange cat</c>, <c>drag the report file to the Documents folder</c>, <c>hover over the help icon</c>,
-/// <c>expect the results list</c>, <c>expect the search box contains "cats"</c>, <c>expect title contains "cats"</c>.
+/// <c>expect the results list</c>, <c>expect no results list</c>, <c>expect the search box contains "cats"</c>, <c>expect title contains "cats"</c>.
 /// </summary>
 public static partial class StepParser
 {
@@ -221,6 +221,12 @@ public static partial class StepParser
                 : new ExpectContainsStep(Describe(target) ?? throw new FormatException($"Say what should contain the text, e.g. {ContainsExample}."), text);
         }
 
+        var gone = NoWord().Match(rest);
+        if (gone.Success)
+        {
+            return new ExpectGoneStep(Describe(rest[gone.Length..]) ?? throw new FormatException("Say what should be gone, e.g. expect no delete button."));
+        }
+
         // "contains" with text that isn't quoted, or nothing after it.
         if (ContainsWord().IsMatch(rest))
         {
@@ -271,6 +277,17 @@ public static partial class StepParser
 
     [GeneratedRegex(@"^(?<direction>up|down|left|right)\s+(?<notches>\d+)\s+in\s+(?<target>.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex ScrollParts();
+
+    /// <summary>Whether the description says that something is gone, e.g. <c>the note to be deleted</c>. "Recently Deleted" is a name, so a verb is needed.</summary>
+    internal static bool MeansGone(string description) => SaysGone().IsMatch(description);
+
+    [GeneratedRegex(
+        @"\b(be|is|are|was|were|been|being|got|gets)\s+(\w+ly\s+)?(deleted|removed|erased|gone|closed|hidden|dismissed|missing|absent|cleared)\b|\b(disappear|vanish)(s|es|ed)?\b|\bno\s+longer\b|\b(not|isn't|aren't)\s+(be\s+)?(shown|visible|there|displayed|on\s+the\s+screen)\b|\b(doesn't|does\s+not|don't|do\s+not)\s+(exist|appear|show)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SaysGone();
+
+    [GeneratedRegex(@"^no(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoWord();
 
     // "click on the cat" means "click the cat"; "click on" alone is a button called "on".
     [GeneratedRegex(@"^on\s+(?=(the|a|an)\s|"")", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

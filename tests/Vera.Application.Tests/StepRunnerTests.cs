@@ -213,6 +213,56 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Expect_no_fails_when_it_is_still_there()
+    {
+        var result = await RunAsync("expect no results");
+
+        result.Verdict.ShouldBe(Verdict.Failed);
+        result.Steps[0].Message.ShouldBe("link \"Results for cats\" is still shown.");
+    }
+
+    [Fact]
+    public async Task Expect_no_passes_when_the_model_sees_none()
+    {
+        var result = await RunAsync("expect no moon");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        result.Steps[0].Message.ShouldBe("VERA sees no moon on this screen");
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Is<TestTask>(t => t.ExpectedResult.Contains("Answer fail only if", StringComparison.Ordinal)),
+            Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Expect_no_waits_for_it_to_go()
+    {
+        ScreensShow(Screen("Shop", Window, Results), Screen("Shop", Window, Results), Screen("Shop", Window, SearchBox));
+        ModelPointsWhenShown("the results", Results);
+
+        (await RunWaitingAsync("expect no results")).Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task Expect_no_does_not_pass_when_nothing_can_be_read()
+    {
+        ScreenShows(Window);
+
+        (await RunAsync("expect no results")).Verdict.ShouldBe(Verdict.Inconclusive);
+    }
+
+    [Fact]
+    public async Task A_check_that_something_is_deleted_never_passes_on_the_thing_itself()
+    {
+        ModelPoints("the results to be deleted", 3);
+
+        var result = await RunAsync("expect the results to be deleted");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[0].Message.ShouldContain("expect no");
+    }
+
+    [Fact]
     public async Task An_element_that_is_not_there_is_asked_about_once()
     {
         await RunAsync("click the moon");
@@ -650,6 +700,12 @@ public sealed class StepRunnerTests : IDisposable
 
     private Task<AgentAction> ModelWasAsked(int times) =>
         _llm.Received(times).DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+
+    private void ModelPointsWhenShown(string description, UiElement element) =>
+        _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<ScreenState>(1).Elements.Contains(element)
+                ? new AgentAction(AgentActionType.Click, element.Id, null, "Found it")
+                : new AgentAction(AgentActionType.Fail, null, null, "Gone"));
 
     private void ModelPoints(string description, int id) => ModelAnswers(description, new AgentAction(AgentActionType.Click, id, null, "Found it"));
 

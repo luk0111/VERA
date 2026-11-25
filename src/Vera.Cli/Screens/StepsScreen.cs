@@ -543,6 +543,12 @@ internal static class StepsScreen
             {
                 if (StepParser.Parse(line) is { } step)
                 {
+                    if (ExpectGoneStep.Problem(step) is { } problem)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(problem)}[/]");
+                        continue;
+                    }
+
                     steps.Add(step);
                 }
             }
@@ -695,6 +701,12 @@ internal static class StepsScreen
             {
                 if (StepParser.Parse(line) is { } step)
                 {
+                    if (ExpectGoneStep.Problem(step) is { } problem)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(problem)}[/]");
+                        continue;
+                    }
+
                     return step;
                 }
             }
@@ -803,6 +815,7 @@ internal static class StepsScreen
         table.AddRow("drag <what> to <where>", Markup.Escape("drag the report file to the Documents folder"));
         table.AddRow("hover over <what>", Markup.Escape("hover over the help icon"));
         table.AddRow("expect <what>", Markup.Escape("expect the results list"));
+        table.AddRow("expect no <what>", Markup.Escape("expect no delete button"));
         table.AddRow("expect <what> contains \"<text>\"", Markup.Escape("expect the search box contains \"cats\""));
         table.AddRow("expect title contains \"<text>\"", Markup.Escape("expect title contains \"cats\""));
         AnsiConsole.Write(table);

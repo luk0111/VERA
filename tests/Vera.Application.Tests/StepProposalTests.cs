@@ -32,6 +32,7 @@ public sealed class StepProposalTests
 
     [Theory]
     [InlineData("<steps>\nclick A\nrun rm -rf\n</steps>", "rm -rf")]
+    [InlineData("<steps>\nexpect the note to be deleted\n</steps>", "expect no")]
     [InlineData("<steps>\npress imagini\n</steps>", "click imagini")]
     [InlineData("<steps>\nclick A\nclick", "cut off")]
     [InlineData("<steps>\n</steps>", "empty")]
@@ -95,6 +96,7 @@ public sealed class StepProposalTests
     [Theory]
     [InlineData("press enter", false)]
     [InlineData("expect the orange cat", true)]
+    [InlineData("expect no orange cat", true)]
     [InlineData("expect title contains \"Cat\"", true)]
     [InlineData("expect the search field contains \"cats\"", true)]
     public void Steps_without_an_expect_check_nothing(string last, bool expected)

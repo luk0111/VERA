@@ -226,10 +226,18 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"hovered over {ElementFinder.Describe(hovered)} (element {hovered.Id})");
 
                 case ExpectShownStep shown:
-                    var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true, mustMatch: true).ConfigureAwait(false);
+                    if (ExpectGoneStep.Problem(shown) is { } problem)
+                    {
+                        throw new StepNotDoneException(problem);
+                    }
+
+                    var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true, care: ElementFinder.Care.MustMatch).ConfigureAwait(false);
                     return seen is null
                         ? (StepOutcome.CheckFailed, notSeen)
                         : (StepOutcome.Done, $"{ElementFinder.Describe(seen)} is shown");
+
+                case ExpectGoneStep gone:
+                    return await IsGoneAsync(gone.Target).ConfigureAwait(false);
 
                 case ExpectContainsStep contains:
                     // Text that can't be read won't become readable by waiting.
@@ -269,6 +277,35 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
         }
 
+        // The opposite of waiting for an element: waits while it's still there. The model is asked only when the elements changed.
+        private async Task<(StepOutcome, string)> IsGoneAsync(string description)
+        {
+            // On a page that is still opening, nothing is there yet: that isn't gone.
+            await SettleAsync().ConfigureAwait(false);
+            string? asked = null;
+            do
+            {
+                if (_screen!.Elements.Count <= 1)
+                {
+                    throw new StepNotDoneException(ElementFinder.NoElementsReason);
+                }
+
+                var seen = ElementFinder.Seen(_screen);
+                if (seen != asked)
+                {
+                    asked = seen;
+                    (_element, _) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, ElementFinder.Care.MustBeGone).ConfigureAwait(false);
+                    if (_element is null)
+                    {
+                        return (StepOutcome.Done, $"VERA sees no {description} on this screen");
+                    }
+                }
+            }
+            while (await ReadAgainAsync().ConfigureAwait(false));
+
+            return (StepOutcome.CheckFailed, $"{ElementFinder.Describe(_element!)} is still shown.");
+        }
+
         // Looks, scrolls the window a little and looks again, until the model sees the element, the page ends, or MaxScrolls.
         // The model is asked only when the elements changed.
         private async Task<(StepOutcome, string)> ScrollUntilAsync(ScrollUntilStep until)
@@ -292,7 +329,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (seen != asked)
                 {
                     asked = seen;
-                    (_element, reason) = await ElementFinder.FindAsync(runner.Llm, before, target, until.Target, ct, mustMatch: true).ConfigureAwait(false);
+                    (_element, reason) = await ElementFinder.FindAsync(runner.Llm, before, target, until.Target, ct, care: ElementFinder.Care.MustMatch).ConfigureAwait(false);
                     if (_element is not null)
                     {
                         var times = scrolls == 0 ? "without scrolling" : $"after scrolling {direction} {Times(scrolls)}";
@@ -352,7 +389,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
         // The element the model picks for the description, waiting for the app until it's there and ready; or why there is none.
         // The model is asked only when the window's elements changed since it was last asked; the element it found is followed without it.
-        private async Task<(UiElement? Element, string NotFound)> WaitForAsync(string description, Func<UiElement, bool> ready, bool mustMatch = false)
+        private async Task<(UiElement? Element, string NotFound)> WaitForAsync(string description, Func<UiElement, bool> ready, ElementFinder.Care care = ElementFinder.Care.Act)
         {
             UiElement? element = null;
             string? asked = null;
@@ -368,7 +405,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (element is null && _screen!.Elements.Count > 1 && seen != asked)
                 {
                     asked = seen;
-                    (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, mustMatch).ConfigureAwait(false);
+                    (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, care).ConfigureAwait(false);
                 }
 
                 if (element is not null && ready(element))

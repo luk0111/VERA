@@ -73,6 +73,11 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
                         return new StepProposal(text, [], $"\"{line}\" presses something that isn't a key. For a button or link write click, e.g. click {press.Keys}.");
                     }
 
+                    if (ExpectGoneStep.Problem(step) is { } gone)
+                    {
+                        return new StepProposal(text, [], $"\"{line}\" can't be checked. {gone}");
+                    }
+
                     steps.Add(step);
                 }
             }
@@ -91,7 +96,7 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
     }
 
     /// <summary>Whether a step checks anything. Without one, "passed" only means that VERA could do the steps.</summary>
-    public bool ChecksSomething => Steps.Any(s => s is ExpectShownStep or ExpectContainsStep or ExpectTitleStep);
+    public bool ChecksSomething => Steps.Any(s => s is ExpectShownStep or ExpectGoneStep or ExpectContainsStep or ExpectTitleStep);
 
     /// <summary>What of a reply to show, also while it is still arriving: everything before the steps, without a tag that has only partly arrived.</summary>
     public static string Visible(string reply)
