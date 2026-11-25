@@ -38,6 +38,11 @@ internal static class ChatScreen
     // Redrawing on every token flickers
     private static readonly TimeSpan RedrawInterval = TimeSpan.FromMilliseconds(50);
 
+    private static readonly TimeSpan WaitingTick = TimeSpan.FromSeconds(1);
+
+    // From here on the wait is longer than usual, so it says what may be going on and how to stop.
+    private static readonly TimeSpan SlowAfter = TimeSpan.FromSeconds(10);
+
     public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader, FindElementService find, StepRunner runner, StepFileStore store)
     {
         // The model was checked before the process list (Ui.EnsureModelReadyAsync), so reading the window is worth it.
@@ -363,14 +368,31 @@ internal static class ChatScreen
                     // The live view draws nothing until it is refreshed, so "thinking…" would stay hidden until the first chunk.
                     ctx.Refresh();
                     var sinceRedraw = Stopwatch.StartNew();
-                    await foreach (var chunk in session.StreamReplyAsync(message, stop.Token))
+                    var sinceSent = Stopwatch.StartNew();
+                    await using var chunks = session.StreamReplyAsync(message, stop.Token).GetAsyncEnumerator(stop.Token);
+                    while (true)
                     {
-                        reply.Append(chunk);
+                        // Nothing arrives while the model thinks or its provider is busy: count the seconds, so the screen doesn't look frozen.
+                        var next = chunks.MoveNextAsync().AsTask();
+                        while (await Task.WhenAny(next, Task.Delay(WaitingTick)) != next)
+                        {
+                            if (StepProposal.Visible(reply.ToString()).Length == 0)
+                            {
+                                ctx.UpdateTarget(ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed));
+                            }
+                        }
+
+                        if (!await next)
+                        {
+                            break;
+                        }
+
+                        reply.Append(chunks.Current);
                         if (sinceRedraw.Elapsed >= RedrawInterval)
                         {
-                            // Null is "thinking…": so far only steps arrived, which are not shown here.
+                            // Only steps so far, which are not shown here: still thinking.
                             var soFar = StepProposal.Visible(reply.ToString());
-                            ctx.UpdateTarget(ReplyPanel(soFar.Length == 0 ? null : soFar));
+                            ctx.UpdateTarget(soFar.Length == 0 ? ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed) : ReplyPanel(soFar));
                             sinceRedraw.Restart();
                         }
                     }
@@ -498,10 +520,10 @@ internal static class ChatScreen
     }
 
     // Model text is shown as a Text widget, never as markup, so "[" and "]" in a reply can't break rendering.
-    private static Panel ReplyPanel(string? text)
+    private static Panel ReplyPanel(string? text, string provider = "", TimeSpan waited = default)
     {
         IRenderable body = text is null
-            ? new Markup("[grey]thinking…[/]")
+            ? new Markup(Thinking(provider, waited))
             : new Text(text, new Style(Neon));
 
         return new Panel(body)
@@ -509,6 +531,14 @@ internal static class ChatScreen
             .Border(BoxBorder.Rounded)
             .BorderColor(Neon)
             .Padding(1, 0);
+    }
+
+    private static string Thinking(string provider, TimeSpan waited)
+    {
+        var seconds = ((int)waited.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+        return waited < WaitingTick ? "[grey]thinking…[/]"
+            : waited < SlowAfter ? $"[grey]thinking… {seconds} s[/]"
+            : $"[grey]thinking… {seconds} s[/]\n[yellow]{Markup.Escape(provider)} is slow or busy. VERA tries again by itself for a while. Press Ctrl+C to stop waiting.[/]";
     }
 
     private static Panel SessionPanel(AppSettings settings, RunningApp app, ChatSession session)
