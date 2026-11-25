@@ -39,6 +39,9 @@ public sealed class StepProposalTests
     [InlineData("<steps>\ntype \"[email]\" into the field\n</steps>", "hidden for privacy")]
     [InlineData("<steps>\nclick A\u202Eevas\n</steps>", "invisible")]
     [InlineData("<steps>\nclick A\u001b[2K\n</steps>", "invisible")]
+    [InlineData("<steps>\nclick A\U000E0041\U000E0042\n</steps>", "invisible")]
+    [InlineData("<steps>\nclick A\u2028click B\n</steps>", "invisible")]
+    [InlineData("<steps>\nclick A\u3164\n</steps>", "invisible")]
     [InlineData("<steps>\ntype \"{{secret:gemini}}\" into the search field\n</steps>", "API key")]
     [InlineData("<steps>\ntype \"{{secret:GEMINI}}\" into the search field\n</steps>", "API key")]
     public void One_bad_line_means_no_steps_at_all(string reply, string why)
@@ -47,6 +50,15 @@ public sealed class StepProposalTests
 
         proposal.Steps.ShouldBeEmpty();
         proposal.Problem.ShouldNotBeNull().ShouldContain(why);
+    }
+
+    [Theory]
+    [InlineData("click Șterge notița")]
+    [InlineData("click 日本語")]
+    [InlineData("click 😀 Reactions")]
+    public void Letters_of_any_language_and_emoji_are_fine(string line)
+    {
+        StepProposal.Read($"<steps>\n{line}\n</steps>", Keys).Problem.ShouldBeNull();
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 using Vera.Core;
@@ -51,7 +52,7 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
                 return new StepProposal(text, [], $"\"{line}\" uses a value that is hidden for privacy.");
             }
 
-            if (line.Any(IsInvisible))
+            if (line.EnumerateRunes().Any(IsInvisible))
             {
                 return new StepProposal(text, [], "a step had invisible characters in it.");
             }
@@ -127,9 +128,12 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
         _ => false,
     };
 
-    // Control characters and those that hide or reorder text (zero width, right to left): the tester couldn't check such a step by reading it.
-    private static bool IsInvisible(char c) =>
-        (char.IsControl(c) && c != '\t') || char.GetUnicodeCategory(c) == UnicodeCategory.Format;
+    // Characters the tester can't see, or that hide or reorder text (zero width, right to left, tags): they couldn't check such a step by reading it.
+    // Whole characters, not halves: some are two chars long.
+    private static bool IsInvisible(Rune c) => c.Value != '\t' && Rune.GetUnicodeCategory(c) is
+        UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator
+        or UnicodeCategory.PrivateUse or UnicodeCategory.OtherNotAssigned or UnicodeCategory.Surrogate
+        || c.Value is 0x115F or 0x1160 or 0x3164 or 0xFFA0 or 0x2800;
 
     [GeneratedRegex(@"<steps>(?<lines>.*?)</steps>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant)]
     private static partial Regex Block();
