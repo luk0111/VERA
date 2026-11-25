@@ -381,6 +381,23 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_typed_secret_stays_hidden_in_later_runs_and_is_read_from_the_store_once()
+    {
+        _secrets.GetAsync("pw", Arg.Any<CancellationToken>()).Returns("s3cret");
+        var trail = new SecretTrail();
+        var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, trail: trail);
+        await runner.RunAsync(1234, "Shop", Steps("type \"{{secret:pw}}\" into the search box"), null, null, Ct);
+        ScreenShows(Window, SearchBox with { Value = "s3cret" }, SearchButton, Results, Delete);
+
+        // Another runner, e.g. for another model, shares the trail.
+        var later = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, trail: trail);
+        var result = await later.RunAsync(1234, "Shop", Steps("expect the search box contains \"cats\""), null, null, Ct);
+
+        result.Steps[0].Message.ShouldBe("field \"Search\" has \"***\", which doesn't contain \"cats\".");
+        await _secrets.Received(1).GetAsync("pw", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task A_model_API_key_is_never_typed_into_the_app()
     {
         _secrets.GetAsync("gemini", Arg.Any<CancellationToken>()).Returns("AIza-key");

@@ -9,7 +9,8 @@ namespace Vera.Application;
 /// Finds one element in a running app: reads its window, asks the model which element it is, and saves a screenshot with it boxed.
 /// It is the agent loop's look-and-decide step, run once and shown to the tester. <see cref="ClickAsync"/> and <see cref="TypeAsync"/> then act on what was found, if the tester asks.
 /// </summary>
-public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient llm, string outputDirectory)
+/// <param name="trail">Keeps the secrets a steps run typed out of every reading; a new, empty one when null.</param>
+public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient llm, string outputDirectory, SecretTrail? trail = null)
 {
     /// <param name="what">What the tester typed, e.g. <c>Log in button</c>.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
@@ -21,7 +22,7 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         await using (adapter.ConfigureAwait(false))
         {
             await adapter.StartAsync(target, ct).ConfigureAwait(false);
-            screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            screen = Trail.Hide(processId, await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
         }
 
         var (element, reason) = await ElementFinder.FindAsync(llm, screen, target, what, ct).ConfigureAwait(false);
@@ -48,7 +49,13 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
     public Task<UiElement> TypeAsync(int processId, string windowTitle, UiElement found, string text, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return ActOnAsync(processId, windowTitle, found, (adapter, id) => adapter.TypeAsync(id, text, ct), ct);
+        return ActOnAsync(processId, windowTitle, found, async (adapter, id) =>
+        {
+            await adapter.TypeAsync(id, text, ct).ConfigureAwait(false);
+
+            // The tester's own text, never a secret (Find doesn't fill them in): the field can be read again.
+            Trail.Forget(processId, found);
+        }, ct);
     }
 
     /// <summary>
@@ -75,13 +82,15 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         await using (adapter.ConfigureAwait(false))
         {
             await adapter.StartAsync(Target(processId, windowTitle), ct).ConfigureAwait(false);
-            var screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            var screen = Trail.Hide(processId, await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
             var same = ElementFinder.Same(screen.Elements, found)
                 ?? throw new InvalidOperationException($"\"{found.Name}\" is no longer on the screen.");
             await act(adapter, same.Id).ConfigureAwait(false);
             return same;
         }
     }
+
+    private SecretTrail Trail { get; } = trail ?? new SecretTrail();
 
     private static AppTarget Target(int processId, string windowTitle) =>
         new(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);

@@ -19,7 +19,10 @@ namespace Vera.Application;
 /// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
 /// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step. Null leaves the app in front.</param>
 /// <param name="apiKeyNames">The secrets that hold VERA's own model API keys. A <c>type</c> step that names one is not done: they never go into the app.</param>
-public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null, IReadOnlyCollection<string>? apiKeyNames = null)
+/// <param name="trail">Where the secrets typed so far are kept out of every reading, shared with Find and the chat; this runner's own when null.</param>
+public sealed class StepRunner(
+    Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null,
+    IFrontWindow? front = null, IReadOnlyCollection<string>? apiKeyNames = null, SecretTrail? trail = null)
 {
     /// <summary>The pause after each action in the app.</summary>
     public static readonly TimeSpan DefaultPause = TimeSpan.FromSeconds(1);
@@ -62,7 +65,6 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         // The tester just started the run, so VERA's window is in front.
         var asksIn = front?.Current();
         Run? opener = null;
-        var trail = new SecretTrail();
 
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
@@ -84,7 +86,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 try
                 {
                     ct.ThrowIfCancellationRequested();
-                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, trail, ct);
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
 
                     // A step may turn what the stop interrupted into its own failure; it's still the tester's stop.
@@ -139,7 +141,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, SecretTrail trail, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, CancellationToken ct)
     {
         private StepCommand Step => step;
 
@@ -212,10 +214,15 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         throw new StepNotDoneException($"\"{apiKey}\" is VERA's model API key, not a test secret. Save the app's own secret in Settings under another name.");
                     }
 
-                    var text = await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
-                    foreach (var name in names)
+                    var used = new UsedSecrets(runner.Secrets);
+                    var text = await SecretPlaceholder.ResolveAsync(type.Text, used, ct).ConfigureAwait(false);
+                    if (names.Count > 0)
                     {
-                        trail.Typed(field, await runner.Secrets.GetAsync(name, ct).ConfigureAwait(false) ?? "");
+                        runner.Trail.Typed(ProcessId, field, used.Values);
+                    }
+                    else
+                    {
+                        runner.Trail.Forget(ProcessId, field);
                     }
 
                     await adapter.TypeAsync(field.Id, text, ct).ConfigureAwait(false);
@@ -569,7 +576,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         }
 
         // Every reading goes through here: a secret typed earlier in the run is taken out before the model, a message or a screenshot sees it.
-        private async Task<ScreenState> ReadAsync() => trail.Hide(await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
+        private async Task<ScreenState> ReadAsync() => runner.Trail.Hide(ProcessId, await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
+
+        private int ProcessId => target.ProcessId ?? 0;
 
         // The screen the step saw, with its element boxed when there is one.
         private async Task<string?> SaveAsync()
@@ -596,6 +605,27 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     private IFrontWindow? Front => front;
 
     private IReadOnlyCollection<string> ApiKeyNames => apiKeyNames ?? [];
+
+    private SecretTrail Trail { get; } = trail ?? new SecretTrail();
+
+    // Reads each secret once and keeps what it read, so the trail learns the values without asking the store again.
+    private sealed class UsedSecrets(ISecretStore store) : ISecretStore
+    {
+        public List<string> Values { get; } = [];
+
+        public async Task<string?> GetAsync(string name, CancellationToken ct)
+        {
+            var value = await store.GetAsync(name, ct).ConfigureAwait(false);
+            if (value is not null)
+            {
+                Values.Add(value);
+            }
+
+            return value;
+        }
+
+        public Task SetAsync(string name, string value, CancellationToken ct) => throw new NotSupportedException();
+    }
 
     // A step VERA can't do; the message is shown to the tester.
     private sealed class StepNotDoneException(string message) : Exception(message);

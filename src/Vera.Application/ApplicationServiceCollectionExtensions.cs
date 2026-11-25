@@ -82,17 +82,21 @@ public static class ApplicationServiceCollectionExtensions
 #else
         services.AddVeraMacAdapter();
 #endif
-        services.AddTransient(sp => new ChatAppContextReader(sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>()));
+        services.AddSingleton<SecretTrail>();
+        services.AddTransient(sp => new ChatAppContextReader(
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>(), sp.GetRequiredService<SecretTrail>()));
         services.AddTransient(sp => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find"), sp.GetRequiredService<SecretTrail>()));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find"), sp.GetRequiredService<SecretTrail>()));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames,
+            trail: sp.GetRequiredService<SecretTrail>()));
         services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames,
+            trail: sp.GetRequiredService<SecretTrail>()));
         services.AddSingleton(new StepFileStore("steps"));
         return services;
     }
