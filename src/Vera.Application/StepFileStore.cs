@@ -11,8 +11,11 @@ public sealed partial class StepFileStore(string folder)
     /// <summary>The full path of the folder the files go in.</summary>
     public string Folder { get; } = Path.GetFullPath(folder);
 
-    /// <summary>Whether <paramref name="name"/> can be a file name: letters, digits, spaces, <c>_</c> and <c>-</c>.</summary>
-    public static bool IsValidName(string name) => Name().IsMatch(name);
+    /// <summary>
+    /// Whether <paramref name="name"/> can be a file name: letters in any language, digits, spaces, <c>_</c> and <c>-</c>,
+    /// but not a name Windows keeps for devices, e.g. <c>CON</c> or <c>com1</c>.
+    /// </summary>
+    public static bool IsValidName(string name) => Name().IsMatch(name) && !DeviceName().IsMatch(name);
 
     /// <summary>The names of the saved chains, sorted.</summary>
     public IReadOnlyList<string> List() =>
@@ -23,12 +26,19 @@ public sealed partial class StepFileStore(string folder)
     public bool Exists(string name) => File.Exists(PathOf(name));
 
     /// <summary>Saves the steps under <paramref name="name"/>, replacing a file with that name. Returns the file's path.</summary>
+    /// <exception cref="ArgumentException">A step spans more than one line: it would load as two broken lines. Nothing is written.</exception>
     public string Save(string name, IEnumerable<StepCommand> steps)
     {
         ArgumentNullException.ThrowIfNull(steps);
         var path = PathOf(name);
+        var lines = steps.Select(s => s.ToString()).ToList();
+        if (lines.FindIndex(l => l.AsSpan().IndexOfAny('\r', '\n') >= 0) is var i and >= 0)
+        {
+            throw new ArgumentException($"Step {i + 1} has a line break, so it can't be saved. Edit it into one line.");
+        }
+
         Directory.CreateDirectory(Folder);
-        File.WriteAllLines(path, steps.Select(s => s.ToString()));
+        File.WriteAllLines(path, lines);
         return path;
     }
 
@@ -61,6 +71,9 @@ public sealed partial class StepFileStore(string folder)
     private string PathOf(string name) =>
         IsValidName(name) ? Path.Combine(Folder, name + ".txt") : throw new ArgumentException($"\"{name}\" can't be a file name.", nameof(name));
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\-]([A-Za-z0-9_\- ]*[A-Za-z0-9_\-])?$")]
+    [GeneratedRegex(@"^[\p{L}\p{M}\p{Nd}_\-]([\p{L}\p{M}\p{Nd}_\- ]*[\p{L}\p{M}\p{Nd}_\-])?$")]
     private static partial Regex Name();
+
+    [GeneratedRegex(@"^(con|prn|aux|nul|com[0-9]|lpt[0-9])$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DeviceName();
 }
