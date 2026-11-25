@@ -269,9 +269,11 @@ internal static class ChatScreen
                         break;
                     }
 
-                    draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, chain, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
+                    draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, chain, session.AddRun);
                     ShowSessionAgain(settings, app, session);
-                    return acted;
+
+                    // Finding there can click or type too, not only a run.
+                    return true;
                 case Proposed.Save:
                     StepsScreen.Save(store, chain);
                     break;
