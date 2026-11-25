@@ -88,6 +88,16 @@ public sealed class PersonalDataTests
     }
 
     [Fact]
+    public void How_a_run_went_is_cleaned_too()
+    {
+        var message = "<run>\n{\"verdict\":\"Failed\",\"steps\":[{\"step\":\"expect the mail from jane@example.com\",\"outcome\":\"check failed\"}]}\n</run>";
+
+        var json = Json(PersonalData.HideInAppData(message, NoWords), "run");
+
+        json.GetProperty("steps")[0].GetProperty("step").GetString().ShouldBe("expect the mail from [email]");
+    }
+
+    [Fact]
     public void Numbers_in_the_json_stay_and_it_stays_valid()
     {
         var message = "<app>\n{\"app\":\"Mail\",\"processId\":25506,\"elements\":[{\"role\":\"Button\",\"name\":\"Reply to jane@example.com\"}]}\n</app>";

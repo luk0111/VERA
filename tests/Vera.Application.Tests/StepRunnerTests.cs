@@ -115,6 +115,195 @@ public sealed class StepRunnerTests : IDisposable
         result.Steps[0].Message.ShouldEndWith("in link \"Results for cats\" (element 3)");
     }
 
+    [Theory]
+    [InlineData("scroll down 6 in the page")]
+    [InlineData("scroll down 6 in the window")]
+    [InlineData("scroll down 6 in the browser window")]
+    public async Task Scrolling_the_whole_page_needs_no_element(string line)
+    {
+        ScreenShows(Window);
+
+        var result = await RunAsync(line);
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).ScrollAsync(0, 6, 0, Arg.Any<CancellationToken>());
+        result.Steps[0].Message.ShouldBe("scrolled down 6 in the window");
+    }
+
+    [Theory]
+    [InlineData("click the page")]
+    [InlineData("hover over the window")]
+    public async Task Only_a_scroll_takes_the_whole_window(string line)
+    {
+        ScreenShows(Window);
+
+        (await RunAsync(line)).Verdict.ShouldBe(Verdict.Inconclusive);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(700, 10)]
+    [InlineData(1500, 40)]
+    [InlineData(350, 100)]
+    [InlineData(350, 120)]
+    [InlineData(480, 200)]
+    [InlineData(900, 100)]
+    public async Task Scroll_until_stops_when_the_element_shows(int catAt, int pixelsPerNotch)
+    {
+        var page = new Page(pageHeight: 2400, pixelsPerNotch, catAt, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat", "hover over the orange cat");
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        result.Steps[0].Message.ShouldStartWith("found link \"Orange cat\" ");
+        page.Scrolls.ShouldBeLessThanOrEqualTo(StepRunner.MaxScrolls);
+        await _adapter.ReceivedWithAnyArgs(1).HoverAsync(default, Ct);
+    }
+
+    [Fact]
+    public async Task Scroll_until_moves_less_than_a_window_at_a_time_once_it_knows_the_distance()
+    {
+        var page = new Page(pageHeight: 2400, pixelsPerNotch: 10, catAt: 1500, _adapter, _llm);
+
+        await RunAsync("scroll down until the orange cat");
+
+        page.Notches[0].ShouldBe(StepRunner.FirstNotches);
+        page.Notches.Take(4).ShouldBe([3, 6, 12, 18]);
+        page.Notches.Skip(4).ShouldAllBe(n => n == 18);
+    }
+
+    [Fact]
+    public async Task Scroll_until_first_waits_for_a_page_that_is_still_opening()
+    {
+        ScreensShow(Screen("Old", Window, Delete), Screen("Shop", Window, SearchBox), Screen("Shop", Window, SearchBox, SearchButton, Results));
+
+        var result = await RunWaitingAsync("scroll down until the results");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(1);
+        await _adapter.DidNotReceiveWithAnyArgs().ScrollAsync(default, default, default, Ct);
+    }
+
+    [Theory]
+    [InlineData(AgentActionType.Done)]
+    [InlineData(AgentActionType.Wait)]
+    public async Task A_field_that_already_has_the_focus_is_found_when_the_model_first_says_done(AgentActionType first)
+    {
+        ModelAnswers("the search box", new AgentAction(first, null, null, "It is already focused"));
+        ModelPoints("the search box, even if it is already selected or focused", 1);
+
+        var result = await RunAsync("type \"cats\" into the search box");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).TypeAsync(1, "cats", Arg.Any<CancellationToken>());
+        await ModelWasAsked(2);
+    }
+
+    [Theory]
+    [InlineData("expect the results", true)]
+    [InlineData("scroll down until the results", true)]
+    [InlineData("click the results", false)]
+    public async Task A_check_or_a_search_must_match_and_not_be_the_closest_thing(string line, bool mustMatch)
+    {
+        await RunAsync(line);
+
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Is<TestTask>(t => t.ExpectedResult.Contains("don't pick the closest thing", StringComparison.Ordinal) == mustMatch),
+            Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Expect_no_fails_when_it_is_still_there()
+    {
+        var result = await RunAsync("expect no results");
+
+        result.Verdict.ShouldBe(Verdict.Failed);
+        result.Steps[0].Message.ShouldBe("link \"Results for cats\" is still shown.");
+    }
+
+    [Fact]
+    public async Task Expect_no_passes_when_the_model_sees_none()
+    {
+        var result = await RunAsync("expect no moon");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        result.Steps[0].Message.ShouldBe("VERA sees no moon on this screen");
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Is<TestTask>(t => t.ExpectedResult.Contains("Answer fail only if", StringComparison.Ordinal)),
+            Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Expect_no_waits_for_it_to_go()
+    {
+        ScreensShow(Screen("Shop", Window, Results), Screen("Shop", Window, Results), Screen("Shop", Window, SearchBox));
+        ModelPointsWhenShown("the results", Results);
+
+        (await RunWaitingAsync("expect no results")).Verdict.ShouldBe(Verdict.Passed);
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task Expect_no_does_not_pass_when_nothing_can_be_read()
+    {
+        ScreenShows(Window);
+
+        (await RunAsync("expect no results")).Verdict.ShouldBe(Verdict.Inconclusive);
+    }
+
+    [Fact]
+    public async Task A_check_that_something_is_deleted_never_passes_on_the_thing_itself()
+    {
+        ModelPoints("the results to be deleted", 3);
+
+        var result = await RunAsync("expect the results to be deleted");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[0].Message.ShouldContain("expect no");
+    }
+
+    [Fact]
+    public async Task An_element_that_is_not_there_is_asked_about_once()
+    {
+        await RunAsync("click the moon");
+
+        await ModelWasAsked(1);
+    }
+
+    [Fact]
+    public async Task Scroll_until_stops_at_the_end_of_the_page()
+    {
+        var page = new Page(pageHeight: 700, pixelsPerNotch: 50, catAt: null, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat", "press enter");
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps.ShouldHaveSingleItem().Message.ShouldBe("I scrolled down to the end and can't find \"the orange cat\". The model's last answer: No cat");
+        page.Scrolls.ShouldBeLessThan(StepRunner.MaxScrolls);
+    }
+
+    [Fact]
+    public async Task Scroll_until_gives_up_on_a_page_without_end()
+    {
+        var page = new Page(pageHeight: 1_000_000, pixelsPerNotch: 10, catAt: null, _adapter, _llm);
+
+        var result = await RunAsync("scroll down until the orange cat");
+
+        result.Steps[0].Message.ShouldBe("I scrolled down 10 times and can't find \"the orange cat\". The model's last answer: No cat");
+        page.Scrolls.ShouldBe(StepRunner.MaxScrolls);
+        await ModelWasAsked(StepRunner.MaxScrolls + 1);
+    }
+
+    [Fact]
+    public async Task Scroll_until_says_when_the_window_does_not_scroll_and_asks_the_model_once()
+    {
+        var result = await RunAsync("scroll up until the orange cat");
+
+        result.Steps[0].Message.ShouldBe("I can't find \"the orange cat\", and the window doesn't scroll up. The model's last answer: There is no such element.");
+        await _adapter.Received(1).ScrollAsync(0, -StepRunner.FirstNotches, 0, Arg.Any<CancellationToken>());
+        await ModelWasAsked(1);
+    }
+
     [Fact]
     public async Task A_drag_step_drags_one_found_element_onto_the_other()
     {
@@ -139,7 +328,7 @@ public sealed class StepRunnerTests : IDisposable
     [Fact]
     public async Task A_drop_onto_a_risky_element_is_asked_first_like_a_click()
     {
-        UiElement? asked = null;
+        string? asked = null;
 
         var result = await RunAsync(["drag the results to the delete button"], e =>
         {
@@ -147,7 +336,7 @@ public sealed class StepRunnerTests : IDisposable
             return Task.FromResult(false);
         });
 
-        asked.ShouldBe(Delete);
+        asked.ShouldBe("drop onto button \"Delete account\"");
         result.Steps[0].Message.ShouldBe("Stopped: dropping onto button \"Delete account\" wasn't approved.");
         await _adapter.DidNotReceiveWithAnyArgs().DragAsync(default, default, Ct);
     }
@@ -379,14 +568,111 @@ public sealed class StepRunnerTests : IDisposable
     [Fact]
     public async Task A_risky_click_is_asked_first_and_a_no_stops_the_run()
     {
-        UiElement? asked = null;
+        string? asked = null;
 
         var result = await RunAsync(["click the delete button"], e => { asked = e; return Task.FromResult(false); });
 
-        asked.ShouldBe(Delete);
+        asked.ShouldBe("click button \"Delete account\"");
         result.Verdict.ShouldBe(Verdict.Inconclusive);
         result.Steps[0].Message.ShouldBe("Stopped: clicking button \"Delete account\" wasn't approved.");
         await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+    }
+
+    [Theory]
+    [InlineData("press delete", true)]
+    [InlineData("press the delete key", true)]
+    [InlineData("press cmd+backspace", true)]
+    [InlineData("press backspace", false)]
+    [InlineData("press enter", false)]
+    public async Task A_key_that_deletes_is_asked_first(string line, bool asks)
+    {
+        var asked = new List<string>();
+
+        var result = await RunAsync([line], what => { asked.Add(what); return Task.FromResult(false); });
+
+        asked.Count.ShouldBe(asks ? 1 : 0);
+        result.Verdict.ShouldBe(asks ? Verdict.Inconclusive : Verdict.Passed);
+        await _adapter.Received(asks ? 0 : 1).PressKeyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task After_asking_a_closed_menu_is_opened_again_and_only_then_clicked()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "click delete note"], _ => { menuOpen = false; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        await _adapter.Received(2).ClickAsync(5, Arg.Any<CancellationToken>());
+        await _adapter.Received(1).ClickAsync(6, Arg.Any<CancellationToken>());
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task A_menu_that_stayed_open_is_not_opened_twice()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "expect delete note", "click delete note"], _ => Task.FromResult(true));
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        await _adapter.Received(1).ClickAsync(5, Arg.Any<CancellationToken>());
+        await _adapter.Received(1).ClickAsync(6, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_menu_that_does_not_open_again_stops_without_a_click()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "press tab", "click delete note"], _ => { menuOpen = false; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[^1].Message.ShouldBe("menu \"Delete Note\" isn't there any more after the question, so VERA did nothing.");
+        await _adapter.DidNotReceive().ClickAsync(6, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Something_else_that_is_gone_after_the_question_is_not_brought_back_by_repeating_a_step()
+    {
+        var asked = false;
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => asked ? Screen("Shop", Window, SearchButton) : Screen("Shop", Window, SearchButton, Delete));
+
+        var result = await RunAsync(["click the search button", "click the delete button"], _ => { asked = true; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        await _adapter.Received(1).ClickAsync(2, Arg.Any<CancellationToken>());
+        await _adapter.DidNotReceive().ClickAsync(4, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_element_that_moved_while_asking_is_clicked_by_its_new_number()
+    {
+        var asked = false;
+        var moved = Delete with { Id = 1, Bounds = new ScreenRect(300, 300, 120, 20) };
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => asked ? Screen("Shop", Window, moved) : Screen("Shop", Window, SearchButton, Delete));
+
+        await RunAsync(["click the delete button"], _ => { asked = true; return Task.FromResult(true); });
+
+        await _adapter.Received(1).ClickAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task VERAs_window_comes_back_before_the_question()
+    {
+        var window = new FrontWindow(77);
+        var front = Substitute.For<IFrontWindow>();
+        front.Current().Returns(window);
+        var order = new List<string>();
+        front.BringBackAsync(window, Arg.Any<CancellationToken>()).Returns(_ => { order.Add("front"); return true; });
+        var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, front);
+
+        await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, Ct);
+
+        order.ShouldBe(["front", "asked"]);
     }
 
     [Fact]
@@ -431,7 +717,7 @@ public sealed class StepRunnerTests : IDisposable
         var result = await RunAsync("press entr");
 
         result.Verdict.ShouldBe(Verdict.Inconclusive);
-        result.Steps[0].Message.ShouldBe("Unknown key \"entr\".");
+        result.Steps[0].Message.ShouldBe("Unknown key \"entr\". To press something on the screen, write click entr.");
     }
 
     [Fact]
@@ -479,7 +765,7 @@ public sealed class StepRunnerTests : IDisposable
 
     private Task<StepRunResult> RunAsync(params string[] lines) => RunAsync(lines, null);
 
-    private Task<StepRunResult> RunAsync(string[] lines, Func<UiElement, Task<bool>>? approveRisky) =>
+    private Task<StepRunResult> RunAsync(string[] lines, Func<string, Task<bool>>? approveRisky) =>
         NewRunner().RunAsync(1234, "Shop", Steps(lines), approveRisky, null, Ct);
 
     // Waits up to 0.5 s, reading every 50 ms.
@@ -495,9 +781,28 @@ public sealed class StepRunnerTests : IDisposable
     private Task<AgentAction> ModelWasAsked(int times) =>
         _llm.Received(times).DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
 
-    private void ModelPoints(string description, int id) =>
+    // "More" (5) opens a menu with "Delete Note" (6).
+    private void MenuOpens(Func<bool> isOpen, Action<bool> open)
+    {
+        var more = new UiElement(5, "SplitButton", "More", new ScreenRect(400, 110, 20, 20), true, "more");
+        var item = new UiElement(6, "MenuItem", "Delete Note", new ScreenRect(400, 200, 80, 20), true, "deleteNote");
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => isOpen() ? Screen("Notes", Window, more, item) : Screen("Notes", Window, more));
+        _adapter.ClickAsync(5, Arg.Any<CancellationToken>()).Returns(_ => { open(true); return Task.CompletedTask; });
+        ModelPoints("the more button", 5);
+        ModelPoints("the delete note", 6);
+    }
+
+    private void ModelPointsWhenShown(string description, UiElement element) =>
         _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentAction(AgentActionType.Click, id, null, "Found it"));
+            .Returns(call => call.ArgAt<ScreenState>(1).Elements.Contains(element)
+                ? new AgentAction(AgentActionType.Click, element.Id, null, "Found it")
+                : new AgentAction(AgentActionType.Fail, null, null, "Gone"));
+
+    private void ModelPoints(string description, int id) => ModelAnswers(description, new AgentAction(AgentActionType.Click, id, null, "Found it"));
+
+    private void ModelAnswers(string description, AgentAction action) =>
+        _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+            .Returns(action);
 
     private void ScreenShows(params UiElement[] elements)
     {
@@ -506,6 +811,57 @@ public sealed class StepRunnerTests : IDisposable
         using var image = SKImage.FromBitmap(bitmap);
         using var png = image.Encode(SKEncodedImageFormat.Png, 100);
         _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(new ScreenState("Shop - cats", elements, png.ToArray(), []));
+    }
+
+    // A page taller than the window (300), with a toolbar that stays, a link every 50 pixels, two links that can be mixed up, and perhaps the cat.
+    private sealed class Page
+    {
+        private int _offset;
+
+        public Page(int pageHeight, int pixelsPerNotch, int? catAt, IAppAdapter adapter, ILlmClient llm)
+        {
+            adapter.ScrollAsync(Arg.Is(0), Arg.Any<int>(), Arg.Is(0), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                Notches.Add(call.ArgAt<int>(1));
+                _offset = Math.Clamp(_offset + (call.ArgAt<int>(1) * pixelsPerNotch), 0, pageHeight - Window.Bounds.Height);
+                return Task.CompletedTask;
+            });
+            adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                List<UiElement> elements = [Window, Link(1, "Toolbar", 0)];
+                for (var y = 0; y < pageHeight; y += 50)
+                {
+                    Add(elements, y % 200 == 0 ? "edit" : $"Link {y}", y - _offset);
+                }
+
+                if (catAt is { } at)
+                {
+                    Add(elements, "Orange cat", at - _offset);
+                }
+
+                return new ScreenState("Shop - cats", elements, ReadOnlyMemory<byte>.Empty, []);
+            });
+            llm.DecideNextActionAsync(
+                    Arg.Is<TestTask>(t => t.Description == "Click the orange cat"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+                .Returns(call => call.ArgAt<ScreenState>(1).Elements.FirstOrDefault(e => e.Name == "Orange cat") is { } cat
+                    ? new AgentAction(AgentActionType.Click, cat.Id, null, "Found it")
+                    : new AgentAction(AgentActionType.Fail, null, null, "No cat"));
+        }
+
+        public List<int> Notches { get; } = [];
+
+        public int Scrolls => Notches.Count;
+
+        private static void Add(List<UiElement> elements, string name, int y)
+        {
+            if (y is >= 0 and < 300)
+            {
+                elements.Add(Link(elements.Count, name, y));
+            }
+        }
+
+        private static UiElement Link(int id, string name, int y) =>
+            new(id, "Hyperlink", name, new ScreenRect(110, 100 + y, 200, 20), true, $"Hyperlink:{name}");
     }
 
     private sealed class ListProgress : IProgress<StepResult>

@@ -77,6 +77,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddVeraInput(config);
         services.AddVeraDesktopAdapter();
         services.AddSingleton<IRunningAppSource, WindowsRunningApps>();
+        services.AddSingleton<IFrontWindow, WindowsFrontWindow>();
 #else
         services.AddVeraMacAdapter();
 #endif
@@ -87,10 +88,10 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
         services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
         services.AddSingleton(new StepFileStore("steps"));
         return services;
     }

@@ -64,6 +64,104 @@ public sealed class StepParserTests
         StepParser.Parse(line).ShouldBe(new ScrollStep(direction, notches, target));
 
     [Theory]
+    [InlineData("press on images", "images")]
+    [InlineData("press on \"Images\"", "Images")]
+    [InlineData("press the button \"Save\"", "the button \"Save\"")]
+    [InlineData("press the + button", "the + button")]
+    [InlineData("press on C++ tutorial", "C++ tutorial")]
+    [InlineData("press on Delete", "Delete")]
+    [InlineData("press on the Home", "the Home")]
+    [InlineData("press on page down", "page down")]
+    [InlineData("press the delete button", "the delete button")]
+    [InlineData("press on the Images tab", "the Images tab")]
+    [InlineData("press the Save button", "the Save button")]
+    [InlineData("press a button", "a button")]
+    [InlineData("press Delete account", "Delete account")]
+    [InlineData("press \"Log in\"", "Log in")]
+    public void Press_on_something_on_the_screen_is_a_click(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new ClickStep(target));
+
+    [Fact]
+    public void A_quote_that_is_not_closed_is_an_error() =>
+        Should.Throw<FormatException>(() => StepParser.Parse("press on \"Images"));
+
+    [Theory]
+    [InlineData("press a", "a")]
+    [InlineData("press the enter key", "enter")]
+    [InlineData("press on the enter key", "enter")]
+    [InlineData("press the delete key", "delete")]
+    [InlineData("press Delete", "Delete")]
+    [InlineData("press the s key", "s")]
+    [InlineData("press page down", "pagedown")]
+    [InlineData("press the down arrow key", "down")]
+    [InlineData("press f5", "f5")]
+    [InlineData("press alt + f4", "alt + f4")]
+    [InlineData("press \"enter\"", "enter")]
+    [InlineData("press \"ctrl+s\"", "ctrl+s")]
+    [InlineData("press entr", "entr")]
+    public void Press_with_a_key_stays_a_key(string line, string keys) =>
+        StepParser.Parse(line).ShouldBe(new PressStep(keys));
+
+    [Theory]
+    [InlineData("click on the orange cat", "the orange cat")]
+    [InlineData("Click ON \"Save\"", "Save")]
+    [InlineData("click on", "on")]
+    [InlineData("click on switch", "on switch")]
+    public void Click_on_the_element_is_click_the_element(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new ClickStep(target));
+
+    [Theory]
+    [InlineData("expect no delete button", "delete button")]
+    [InlineData("Expect NO \"Shopping\" note", "\"Shopping\" note")]
+    public void Expect_no_checks_that_something_is_gone(string line, string target)
+    {
+        var step = StepParser.Parse(line);
+
+        step.ShouldBe(new ExpectGoneStep(target));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Fact]
+    public void A_name_that_starts_with_no_keeps_its_meaning_when_saved()
+    {
+        var step = StepParser.Parse("expect \"No results\"");
+
+        step.ShouldBe(new ExpectShownStep("No results"));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Theory]
+    [InlineData("expect the note to be deleted", true)]
+    [InlineData("expect the note is gone", true)]
+    [InlineData("expect the dialog has been closed", true)]
+    [InlineData("expect the note is not shown", true)]
+    [InlineData("expect the menu disappears", true)]
+    [InlineData("expect the Recently Deleted folder", false)]
+    [InlineData("expect the Close button", false)]
+    [InlineData("expect the Closed tab", false)]
+    [InlineData("expect no note", false)]
+    public void A_check_that_says_something_is_gone_is_a_problem(string line, bool problem) =>
+        (ExpectGoneStep.Problem(StepParser.Parse(line)!) is not null).ShouldBe(problem);
+
+    [Theory]
+    [InlineData("scroll down until the orange cat", ScrollDirection.Down, "the orange cat")]
+    [InlineData("Scroll UP until you see the title", ScrollDirection.Up, "the title")]
+    [InlineData("scroll right until \"the last column\"", ScrollDirection.Right, "the last column")]
+    public void Scroll_until_has_a_direction_and_an_element(string line, ScrollDirection direction, string target)
+    {
+        var step = StepParser.Parse(line);
+
+        step.ShouldBe(new ScrollUntilStep(direction, target));
+        StepParser.Parse(step!.ToString()!).ShouldBe(step);
+    }
+
+    [Theory]
+    [InlineData("scroll down until")]
+    [InlineData("scroll down until you see")]
+    public void Scroll_until_needs_an_element(string line) =>
+        Should.Throw<FormatException>(() => StepParser.Parse(line)).Message.ShouldBe("Say what to scroll to, e.g. scroll down until the orange cat.");
+
+    [Theory]
     [InlineData("drag the report file to the Documents folder", "the report file", "the Documents folder")]
     [InlineData("drag the Go to button to the toolbar", "the Go to button", "the toolbar")]
     [InlineData("drag the file to \"the Go to button\"", "the file", "the Go to button")]
