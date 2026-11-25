@@ -18,7 +18,8 @@ namespace Vera.Application;
 /// <param name="pause">How long the app gets to react after each click, type or key press.</param>
 /// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
 /// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step. Null leaves the app in front.</param>
-public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null)
+/// <param name="rules">What asks first, and what VERA never does in steps it proposed; <see cref="RiskRules.Default"/> when null.</param>
+public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null, RiskRules? rules = null)
 {
     /// <summary>The pause after each action in the app.</summary>
     public static readonly TimeSpan DefaultPause = TimeSpan.FromSeconds(1);
@@ -34,9 +35,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     private readonly TimeSpan _wait = wait ?? DefaultWait;
 
-    /// <param name="approveRisky">Asked before a click or drop on an element with a risky name, or a key that deletes (<see cref="RiskyWords"/>); gets what VERA is about to do, e.g. <c>click button "Delete"</c>. False stops the run. Null acts without asking.</param>
+    /// <param name="approveRisky">Asked before a click or drop on an element with a risky name, or a risky key (<see cref="RiskRules"/>); gets what VERA is about to do, e.g. <c>click button "Delete"</c>. False stops the run. Null acts without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
     /// <param name="ct">The tester's stop: cancelling it ends the run at once with <see cref="StepRunResult.StoppedByTester"/>, not an exception.</param>
+    /// <param name="proposedByVera">The AI proposed the steps and the tester didn't change them: a click or drop on an element named in <see cref="RiskRules.NeverDo"/> isn't done, even when approved (#38).</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     /// <remarks>
     /// An error that isn't about one step, e.g. the model can't be reached, ends the run: the result keeps the steps finished so far,
@@ -49,7 +51,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         IReadOnlyList<StepCommand> steps,
         Func<string, Task<bool>>? approveRisky,
         IProgress<StepResult>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool proposedByVera = false)
     {
         ArgumentNullException.ThrowIfNull(steps);
         var folder = Path.GetFullPath(Path.Combine(outputDirectory, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)));
@@ -82,7 +85,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 try
                 {
                     ct.ThrowIfCancellationRequested();
-                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, ct);
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, proposedByVera, asksIn, opener, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
 
                     // A step may turn what the stop interrupted into its own failure; it's still the tester's stop.
@@ -137,7 +140,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, bool proposedByVera, FrontWindow? asksIn, Run? opener, CancellationToken ct)
     {
         private StepCommand Step => step;
 
@@ -186,7 +189,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             {
                 case ClickStep click:
                     var button = await UsableAsync(click.Target).ConfigureAwait(false);
-                    if (approveRisky is not null && RiskyWords.IsRisky(button.Name))
+                    NeverDo(button);
+                    if (approveRisky is not null && runner.Rules.IsRisky(button.Name))
                     {
                         await AskAsync($"click {ElementFinder.Describe(button)}", $"clicking {ElementFinder.Describe(button)}").ConfigureAwait(false);
                         button = await AfterAskingAsync(button).ConfigureAwait(false);
@@ -210,7 +214,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
 
                 case PressStep press:
-                    if (approveRisky is not null && RiskyWords.IsRiskyKey(press.Keys))
+                    if (approveRisky is not null && runner.Rules.IsRiskyKey(press.Keys))
                     {
                         await AskAsync($"press {press.Keys}", $"pressing {press.Keys}").ConfigureAwait(false);
                     }
@@ -250,7 +254,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     }
 
                     // The drop target decides what happens, e.g. a "Trash" or "Delete" area.
-                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name))
+                    NeverDo(drop);
+                    if (approveRisky is not null && runner.Rules.IsRisky(drop.Name))
                     {
                         await AskAsync($"drop onto {ElementFinder.Describe(drop)}", $"dropping onto {ElementFinder.Describe(drop)}").ConfigureAwait(false);
                         dragged = StillThere(dragged);
@@ -319,6 +324,16 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
         }
 
+        // The model may find "Pay now" for "the green button", so the element's own name is checked, not only the step's words.
+        private void NeverDo(UiElement element)
+        {
+            if (proposedByVera && runner.Rules.NeverDoIn(element.Name) is { } never)
+            {
+                throw new StepNotDoneException(
+                    $"Stopped: VERA doesn't act on {ElementFinder.Describe(element)} (\"{never}\") in steps the AI proposed. Write the step yourself to run it.");
+            }
+        }
+
         // Asks in VERA's own window, so the tester only has to type the answer, then reads the app again: what was there before may be gone.
         private async Task AskAsync(string what, string doing)
         {
@@ -342,7 +357,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         private async Task<UiElement> AfterAskingAsync(UiElement element)
         {
             if (element.Role == "MenuItem" && ElementFinder.Same(_screen!.Elements, element) is null
-                && opener?._element is { } opened && ElementFinder.Same(_screen.Elements, opened) is { IsEnabled: true } again && !RiskyWords.IsRisky(again.Name))
+                && opener?._element is { } opened && ElementFinder.Same(_screen.Elements, opened) is { IsEnabled: true } again && !runner.Rules.IsRisky(again.Name))
             {
                 if (opener.Step is HoverStep)
                 {
@@ -578,6 +593,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     private ISecretStore Secrets => secrets;
 
     private IFrontWindow? Front => front;
+
+    private RiskRules Rules => rules ?? RiskRules.Default;
 
     // A step VERA can't do; the message is shown to the tester.
     private sealed class StepNotDoneException(string message) : Exception(message);

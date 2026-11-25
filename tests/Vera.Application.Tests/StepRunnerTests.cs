@@ -642,6 +642,9 @@ public sealed class StepRunnerTests : IDisposable
     [InlineData("press delete", true)]
     [InlineData("press the delete key", true)]
     [InlineData("press cmd+backspace", true)]
+    [InlineData("press shift+delete", true)]
+    [InlineData("press alt+f4", true)]
+    [InlineData("press ctrl+w", true)]
     [InlineData("press backspace", false)]
     [InlineData("press enter", false)]
     public async Task A_key_that_deletes_is_asked_first(string line, bool asks)
@@ -733,6 +736,26 @@ public sealed class StepRunnerTests : IDisposable
         await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, Ct);
 
         order.ShouldBe(["front", "asked"]);
+    }
+
+    [Fact]
+    public async Task A_never_do_click_in_steps_the_AI_proposed_is_not_done_even_when_approved()
+    {
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("click the delete button"), _ => Task.FromResult(true), null, Ct, proposedByVera: true);
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[0].Message.ShouldBe(
+            "Stopped: VERA doesn't act on button \"Delete account\" (\"delete account\") in steps the AI proposed. Write the step yourself to run it.");
+        await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+    }
+
+    [Fact]
+    public async Task A_never_do_click_in_steps_the_AI_proposed_is_refused_without_approval_too()
+    {
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("click the delete button"), null, null, Ct, proposedByVera: true);
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
     }
 
     [Fact]

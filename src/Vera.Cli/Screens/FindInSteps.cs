@@ -108,7 +108,7 @@ internal static class FindInSteps
             case FoundAction.AddType:
                 return (AskText() is { } stepText ? Added(FoundStep.Type(result, what, stepText)) : null, false);
             case FoundAction.ClickNow:
-                if (settings.AskBeforeRiskyActions && FindElementService.IsRisky(found)
+                if (settings.AskBeforeRiskyActions && FindElementService.IsRisky(found, settings.Rules)
                     && !AnsiConsole.Confirm($"[yellow]\"{Markup.Escape(found.Name)}\" may change or send something. Click it?[/]", defaultValue: false))
                 {
                     return (null, false);

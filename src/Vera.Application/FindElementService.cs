@@ -62,10 +62,11 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
     }
 
     /// <summary>Whether clicking the element may change or send something, from words in its name; a steps run asks before such a click too.</summary>
-    public static bool IsRisky(UiElement element)
+    /// <param name="rules">The words that count; <see cref="RiskRules.Default"/> when null.</param>
+    public static bool IsRisky(UiElement element, RiskRules? rules = null)
     {
         ArgumentNullException.ThrowIfNull(element);
-        return RiskyWords.IsRisky(element.Name);
+        return (rules ?? RiskRules.Default).IsRisky(element.Name);
     }
 
     private async Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)

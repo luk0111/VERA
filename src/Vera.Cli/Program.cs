@@ -36,6 +36,7 @@ var savedProfile = await UserSettingsStore.LoadSelectedProfileAsync(Cancellation
 var settings = new AppSettings
 {
     ConfiguredModels = models,
+    Rules = services.GetRequiredService<RiskRules>(),
     SelectedModel = models.FirstOrDefault(m => m.ProfileName == savedProfile) ?? models[0],
 };
 var secrets = services.GetRequiredService<ISecretStore>();
