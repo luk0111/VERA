@@ -44,7 +44,47 @@ internal static class PathGuard
             throw new FileAccessException(FileAccessError.NotFound, $"File not found: {fullPath}");
         }
 
+        // A link or a junction can lead into a refused folder under a harmless name.
+        RejectDenied(WhereItLeads(fullPath, 0));
         return fullPath;
+    }
+
+    // The path with every link and junction followed, one folder at a time.
+    private static string WhereItLeads(string fullPath, int links)
+    {
+        // A loop of links would never end.
+        if (links > 40)
+        {
+            throw new FileAccessException(FileAccessError.NotAllowed, NotReadable);
+        }
+
+        var root = Path.GetPathRoot(fullPath) ?? "";
+        var current = root;
+        foreach (var part in fullPath[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            FileSystemInfo? entry;
+            try
+            {
+                // Looking the name up in its folder gives its real name and whether it is a link.
+                entry = new DirectoryInfo(current).EnumerateFileSystemInfos(part).FirstOrDefault();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                // Where a folder can't be listed, VERA can't tell where the path leads.
+                throw new FileAccessException(FileAccessError.NotAllowed, NotReadable);
+            }
+
+            if (entry is null)
+            {
+                throw new FileAccessException(FileAccessError.NotFound, $"File not found: {fullPath}");
+            }
+
+            current = entry.LinkTarget is { } target
+                ? WhereItLeads(Path.GetFullPath(target, Path.GetDirectoryName(entry.FullName) ?? root), links + 1)
+                : entry.FullName;
+        }
+
+        return current;
     }
 
     private static string Unquote(string path)
