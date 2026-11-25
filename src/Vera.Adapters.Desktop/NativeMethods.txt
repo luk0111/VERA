@@ -4,6 +4,9 @@
 GetForegroundWindow
 GetWindowThreadProcessId
 
+// The area of all monitors, to keep screenshots and clicks on the screen
+GetSystemMetrics
+
 // Bringing the app to the front
 SetForegroundWindow
 BringWindowToTop

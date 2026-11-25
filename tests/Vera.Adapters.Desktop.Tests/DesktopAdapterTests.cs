@@ -73,6 +73,21 @@ public sealed class DesktopAdapterTests
     }
 
     [Fact]
+    public void A_window_partly_off_the_screen_is_cut_to_the_screen()
+    {
+        var desktop = new ScreenRect(0, 0, 1920, 1080);
+
+        // A maximized window reaches 8 pixels past each edge.
+        DesktopAdapter.VisiblePart(new ScreenRect(-8, -8, 1936, 1048), desktop).ShouldBe(new ScreenRect(0, 0, 1920, 1040));
+        DesktopAdapter.VisiblePart(new ScreenRect(1800, 500, 400, 300), desktop).ShouldBe(new ScreenRect(1800, 500, 120, 300));
+        DesktopAdapter.VisiblePart(Window, desktop).ShouldBe(Window);
+    }
+
+    [Fact]
+    public void A_window_fully_off_the_screen_has_no_visible_part() =>
+        DesktopAdapter.VisiblePart(new ScreenRect(2000, 0, 400, 300), new ScreenRect(0, 0, 1920, 1080)).ShouldBeNull();
+
+    [Fact]
     public void A_click_point_never_leaves_the_screenshot()
     {
         // A 1-pixel element in the window's bottom-right corner.
@@ -169,6 +184,35 @@ public sealed class DesktopAdapterIntegrationTests
             var error = await Should.ThrowAsync<InvalidOperationException>(() => adapter.GetScreenStateAsync(Ct));
 
             error.Message.ShouldBe("The app's window is minimized. Restore it and try again.");
+        }
+        finally
+        {
+            charmap.Kill();
+        }
+    }
+
+    [Fact]
+    public async Task A_window_partly_off_the_screen_is_read_as_its_part_on_the_screen()
+    {
+        using var charmap = await StartCharacterMapAsync();
+        try
+        {
+            var desktop = DesktopAdapter.VirtualDesktop();
+            using (var automation = new UIA3Automation())
+            {
+                automation.FromHandle(charmap.MainWindowHandle).Patterns.Transform.Pattern.Move(desktop.X - 150, desktop.Y + 100);
+            }
+
+            await using var adapter = new DesktopAdapter(RealScreen());
+            await adapter.StartAsync(new AppTarget("Character Map", AppPlatform.Desktop, "", ProcessId: charmap.Id), Ct);
+            var state = await adapter.GetScreenStateAsync(Ct);
+
+            var window = state.Elements[0].Bounds;
+            window.X.ShouldBe(desktop.X);
+            var png = state.ScreenshotPng.Span;
+            BinaryPrimitives.ReadInt32BigEndian(png[16..]).ShouldBe(window.Width);
+            BinaryPrimitives.ReadInt32BigEndian(png[20..]).ShouldBe(window.Height);
+            state.Elements.Skip(1).ShouldAllBe(e => e.Bounds.X + (e.Bounds.Width / 2) >= desktop.X);
         }
         finally
         {
