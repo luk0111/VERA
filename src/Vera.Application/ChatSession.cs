@@ -190,8 +190,10 @@ public sealed partial class ChatSession
         _history[0] = new ChatMessage(ChatRole.System, SystemPrompt + "\n\n" + DescribeApp(app, OperatingSystem.IsWindows(), ElementLimit));
 
         // Without this, the model tends to repeat what it said about the old window, e.g. the previous browser tab.
+        // One note says it all: Ollama keeps every system message when the context is full, so old ones would only take room.
         if (changed)
         {
+            _history.RemoveAll(m => m.Role == ChatRole.System && m.Text == WindowChangedNote);
             _history.Add(new ChatMessage(ChatRole.System, WindowChangedNote));
         }
     }
@@ -262,6 +264,12 @@ public sealed partial class ChatSession
     /// <summary>Stats of the last reply that finished normally; null before the first one and after a failed or stopped reply.</summary>
     public ReplyStats? LastReplyStats { get; private set; }
 
+    /// <summary>
+    /// How many of the oldest messages (questions, replies, attached files, runs) were left out of the conversation to make room
+    /// before the last reply; 0 when everything still fitted. Only a model with a set <see cref="LlmProfile.ContextSize"/> has a limit.
+    /// </summary>
+    public int DroppedForRoom { get; private set; }
+
     public Task<ConnectionStatus> CheckConnectionAsync(CancellationToken ct) =>
         _connectionChecker.CheckAsync(_profile, ct);
 
@@ -275,6 +283,7 @@ public sealed partial class ChatSession
     {
         _history.Add(new ChatMessage(ChatRole.User, userText));
         LastReplyStats = null;
+        DroppedForRoom = MakeRoom();
 
         var stats = new StreamStats(Stopwatch.StartNew());
         var reply = new StringBuilder();
@@ -417,6 +426,36 @@ public sealed partial class ChatSession
 
         public long? OutputTokens { get; set; }
     }
+
+    // Ollama drops the oldest messages itself when they don't fit, without a word. VERA drops them first, so it can tell the tester.
+    // The rules, the app and the newest message always stay; a reply never stays without its question.
+    // shortcut: about 4 characters per token, which fits English and JSON; count with the model's tokenizer if it drops too much or too little.
+    private int MakeRoom()
+    {
+        if (_profile.ContextSize <= 0)
+        {
+            return 0;
+        }
+
+        // The rest is room for the reply.
+        var budget = _profile.ContextSize * 4 * 8 / 10;
+        var dropped = 0;
+        while (_history.Sum(m => m.Text.Length) > budget && OldestDroppable() is var i and > 0)
+        {
+            _history.RemoveAt(i);
+            dropped++;
+            if (OldestDroppable() is var next and > 0 && _history[next].Role == ChatRole.Assistant)
+            {
+                _history.RemoveAt(next);
+                dropped++;
+            }
+        }
+
+        return dropped;
+    }
+
+    // The first message that isn't a system message or the newest one; -1 when there is none.
+    private int OldestDroppable() => _history.FindIndex(1, _history.Count - 2, m => m.Role != ChatRole.System) is var i and >= 0 ? i : -1;
 
     /// <summary>Forgets the conversation; only the system message stays, with what it says about the app.</summary>
     public void Reset()
