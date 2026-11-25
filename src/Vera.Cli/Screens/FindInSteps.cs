@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using Spectre.Console;
 using Vera.Application;
 using Vera.Core;
@@ -11,7 +10,7 @@ namespace Vera.Cli.Screens;
 /// Find, in the chat and while writing steps: ask where something is in the app. VERA answers in one line and opens a screenshot with the element boxed.
 /// What was found can be added as a step, which only saves it, or used at once: clicked, or typed into when it is a text field.
 /// </summary>
-internal static partial class FindInSteps
+internal static class FindInSteps
 {
     public const string Command = "find";
     private const string ExitCommand = "/back";
@@ -24,24 +23,8 @@ internal static partial class FindInSteps
         return word.Equals(Command, StringComparison.OrdinalIgnoreCase) ? (space < 0 ? "" : line[space..].Trim().Trim('"').Trim()) : null;
     }
 
-    /// <summary>
-    /// The same in the chat, where "find" is also an ordinary word: <c>/find …</c>, or a line like <c>find the search button</c>. Null for anything else, e.g. a question about a file, a search for bugs, or a test that starts with finding something.
-    /// </summary>
-    public static string? AskedInChat(string message)
-    {
-        if (message.StartsWith('/'))
-        {
-            return Asked(message[1..]);
-        }
-
-        return ChatFind().IsMatch(message) && !NotForFind().IsMatch(message) ? Asked(message) : null;
-    }
-
-    [GeneratedRegex(@"^find\s+(the|a|an)\s+\S", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex ChatFind();
-
-    [GeneratedRegex(@"\b(files?|pdf|text|document|bugs?|problems?|issues?|and|then)\b|\?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex NotForFind();
+    /// <summary>The same in the chat, where "find" is also an ordinary word: <c>/find …</c>, or a short find (<see cref="ChatFind"/>). Null for anything else.</summary>
+    public static string? AskedInChat(string message) => message.StartsWith('/') ? Asked(message[1..]) : ChatFind.Asked(message);
 
     /// <returns>The step the tester chose to add, null when they added none; and whether VERA clicked or typed in the app.</returns>
     public static async Task<(StepCommand? Step, bool Acted)> RunAsync(AppSettings settings, RunningApp app, FindElementService service, string what)
