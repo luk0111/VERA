@@ -47,6 +47,7 @@ public sealed partial class ChatSession
         If the tester says something is there but it isn't in <app>, don't agree and don't describe it. Say you still don't see it in what VERA read, and ask them to scroll it into view and type /refresh.
 
         When the tester wants something tested or done in the app, propose steps VERA can run. Always ask in one short sentence first whether to run them, then write the steps, one per line, between a line with <steps> and a line with </steps>. Don't describe the steps anywhere else, and write nothing after </steps>.
+        A message that is itself an order, like: type "cats" into the search field and press enter, is such a request: propose the steps. Never answer with JSON, code or an action: you don't act in the app, VERA does.
         Only these forms are steps:
         click <what>
         type "<text>" into <what>
@@ -320,6 +321,15 @@ public sealed partial class ChatSession
 
         var duration = stats.SinceSend.Elapsed;
         LastReplyStats = new ReplyStats(duration, duration - (stats.FirstUpdate ?? duration), stats.OutputTokens);
+    }
+
+    /// <summary>Takes the last reply back, so the model doesn't see it and write the same again. Nothing happens when the last message isn't a reply.</summary>
+    public void ForgetLastReply()
+    {
+        if (_history[^1].Role == ChatRole.Assistant)
+        {
+            _history.RemoveAt(_history.Count - 1);
+        }
     }
 
     /// <summary>

@@ -624,6 +624,25 @@ public sealed class ChatSessionTests
         ChatSession.StepsRefusedNote(problem).ShouldContain("between 1 and 50");
     }
 
+    [Fact]
+    public async Task A_reply_can_be_taken_back_but_not_the_testers_message()
+    {
+        var client = new FakeChatClient("json");
+        var session = NewSession(client);
+        await DrainAsync(session.StreamReplyAsync("type cats", Ct));
+
+        session.ForgetLastReply();
+        session.ForgetLastReply();
+
+        session.History.Select(m => m.Text).ShouldBe([ChatSession.SystemPrompt, "type cats"]);
+    }
+
+    [Fact]
+    public void The_system_prompt_says_an_order_is_a_request_for_steps_and_never_json()
+    {
+        ChatSession.SystemPrompt.ShouldContain("Never answer with JSON, code or an action");
+    }
+
     private static ChatAppContext App(string name, string title, params UiElement[] elements) =>
         new(1234, name, title, elements);
 
