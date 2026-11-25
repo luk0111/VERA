@@ -20,7 +20,8 @@ public enum StepOutcome
 /// <param name="Step">The step as written; secret placeholders stay placeholders.</param>
 /// <param name="Message">What happened, e.g. <c>typed into field "Search" (element 4)</c>.</param>
 /// <param name="ScreenshotPath">The screen the step acted on, with its element boxed; null when the window couldn't be read.</param>
-public sealed record StepResult(int Number, StepCommand Step, StepOutcome Outcome, string Message, string? ScreenshotPath);
+/// <param name="Duration">How long the step took, from reading the window to the end of its pause.</param>
+public sealed record StepResult(int Number, StepCommand Step, StepOutcome Outcome, string Message, string? ScreenshotPath, TimeSpan Duration);
 
 /// <summary>A whole run: the steps up to the first one that wasn't done, and the verdict.</summary>
 /// <param name="Verdict"><see cref="Verdict.Passed"/> when every step was done, <see cref="Verdict.Failed"/> when a check didn't hold,
