@@ -740,21 +740,37 @@ internal static class StepsScreen
         var stopKey = await StartStopKeyAsync(stop);
         AnsiConsole.WriteLine();
 
-        Func<string, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? what => Task.FromResult(ApproveRisky(what)) : null;
+        // The running step and what VERA is doing in it (#59); cleared before anything else is written.
+        var status = new StepStatusLine(steps.Count);
+        Func<string, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions
+            ? what =>
+            {
+                status.Clear();
+                return Task.FromResult(ApproveRisky(what));
+            }
+            : null;
+        var finished = new LineProgress<StepResult>(step =>
+        {
+            status.Clear();
+            ShowStep(step);
+        });
+
         StepRunResult result;
         try
         {
-            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), stop.Token, proposed);
+            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, finished, new LineProgress<StepActivity>(status.Show), stop.Token, proposed);
         }
 #pragma warning disable CA1031 // A run that can't start (e.g. the app closed) is shown on screen; the screen itself must stay open.
         catch (Exception e)
 #pragma warning restore CA1031
         {
+            status.Clear();
             Ui.ShowError(settings, e);
             return null;
         }
         finally
         {
+            status.Dispose();
             stopKey?.Dispose();
         }
 
@@ -815,7 +831,8 @@ internal static class StepsScreen
             _ => ("!", "yellow"),
         };
         AnsiConsole.MarkupLine($"[{color}]{mark}[/] {step.Number}. {Markup.Escape(step.Step.ToString())}");
-        AnsiConsole.MarkupLine($"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/]");
+        AnsiConsole.MarkupLine(
+            $"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/] [grey]· {StepStatusLine.Seconds(step.Duration)}[/]");
     }
 
     // Asked before a risky click, drop or key. The run brings this window to the front first, and the app back after the answer.
@@ -859,9 +876,9 @@ internal static class StepsScreen
         AnsiConsole.WriteLine();
     }
 
-    // Shows each step the moment it's finished, in order.
-    private sealed class LineProgress(Action<StepResult> show) : IProgress<StepResult>
+    // Passes each report on at once, in order, on the runner's thread (Progress<T> would post them later, out of order with the screen).
+    private sealed class LineProgress<T>(Action<T> show) : IProgress<T>
     {
-        public void Report(StepResult value) => show(value);
+        public void Report(T value) => show(value);
     }
 }
