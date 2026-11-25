@@ -9,7 +9,8 @@ using Vera.Core;
 using Vera.Input;
 
 using Windows.Win32;
-using Windows.Win32.UI.WindowsAndMessaging;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
 
 namespace Vera.Adapters.Desktop;
 
@@ -143,12 +144,22 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         return right > left && bottom > top ? new ScreenRect(left, top, right - left, bottom - top) : null;
     }
 
-    // The rectangle around all monitors, in physical pixels (VERA is DPI aware).
-    internal static ScreenRect VirtualDesktop() => new(
-        PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_XVIRTUALSCREEN),
-        PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_YVIRTUALSCREEN),
-        PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CXVIRTUALSCREEN),
-        PInvoke.GetSystemMetrics(SYSTEM_METRICS_INDEX.SM_CYVIRTUALSCREEN));
+    /// <summary>
+    /// The monitor most of the window is on, in physical pixels (VERA is DPI aware). Not the rectangle around all monitors:
+    /// with monitors of different sizes it has corners no monitor shows, where the mouse can't go.
+    /// </summary>
+    internal static ScreenRect MonitorOf(nint window)
+    {
+        var monitor = PInvoke.MonitorFromWindow(new HWND(window), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (!PInvoke.GetMonitorInfo(monitor, ref info))
+        {
+            throw new InvalidOperationException(WindowOffScreen);
+        }
+
+        var r = info.rcMonitor;
+        return new ScreenRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+    }
 
     /// <summary>Replaces the element's text: clicks it, selects all with Ctrl+A, then types. Empty text clears it. The text is never logged.</summary>
     /// <inheritdoc cref="ClickAsync" path="/exception"/>
@@ -205,8 +216,8 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
             }
 
             // A maximized window reaches a few pixels past the monitor, and a window can be dragged half off it.
-            // Only the part on the screen can be captured and clicked, so that part is the window from here on.
-            var bounds = VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), VirtualDesktop())
+            // Only the part on its monitor can be captured and clicked, so that part is the window from here on.
+            var bounds = VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), MonitorOf(_window))
                 ?? throw new InvalidOperationException(WindowOffScreen);
             var title = window.Properties.Name.ValueOrDefault ?? "";
 
@@ -252,7 +263,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
                     var window = _automation.FromHandle(_window);
                     await BringToFrontAsync(window, ct).ConfigureAwait(false);
                     var r = window.BoundingRectangle;
-                    if (VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), VirtualDesktop()) != readBounds)
+                    if (VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), MonitorOf(_window)) != readBounds)
                     {
                         throw new InvalidOperationException(WindowMoved);
                     }

@@ -197,7 +197,7 @@ public sealed class DesktopAdapterIntegrationTests
         using var charmap = await StartCharacterMapAsync();
         try
         {
-            var desktop = DesktopAdapter.VirtualDesktop();
+            var desktop = DesktopAdapter.MonitorOf(charmap.MainWindowHandle);
             using (var automation = new UIA3Automation())
             {
                 automation.FromHandle(charmap.MainWindowHandle).Patterns.Transform.Pattern.Move(desktop.X - 150, desktop.Y + 100);
