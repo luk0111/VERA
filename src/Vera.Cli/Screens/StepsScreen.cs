@@ -36,6 +36,7 @@ internal static class StepsScreen
         AddMore,
         Edit,
         Save,
+        Other,
         Back,
     }
 
@@ -94,6 +95,9 @@ internal static class StepsScreen
 
             switch (await ReviewAsync(settings, app, find, store, opened, chain))
             {
+                case Leaving.Other:
+                    chain = null;
+                    continue;
                 case Leaving.Kept:
                     return chain;
                 case Leaving.ThrownAway:
@@ -173,6 +177,7 @@ internal static class StepsScreen
     private enum Leaving
     {
         Run,
+        Other,
         Kept,
         ThrownAway,
     }
@@ -281,6 +286,7 @@ internal static class StepsScreen
                         Ready.AddMore => "Add more steps",
                         Ready.Edit => "Edit steps",
                         Ready.Save => "Save these steps",
+                        Ready.Other => "Other steps (write, record or load)",
                         _ => "Back to the chat",
                     }));
 
@@ -297,6 +303,13 @@ internal static class StepsScreen
                     break;
                 case Ready.Save:
                     Save(store, chain);
+                    break;
+                case Ready.Other:
+                    if (MayLose(store, chain))
+                    {
+                        return Leaving.Other;
+                    }
+
                     break;
                 default:
                     // Unchanged steps stay in the chat, so nothing is lost.
