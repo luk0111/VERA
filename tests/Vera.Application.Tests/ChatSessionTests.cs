@@ -555,6 +555,43 @@ public sealed class ChatSessionTests
     }
 
     [Fact]
+    public async Task The_next_reply_is_told_how_a_run_went_but_not_what_was_typed_or_read()
+    {
+        var client = new FakeChatClient("ok");
+        var session = NewSession(client);
+        StepCommand[] steps = [new TypeStep("typed-word", "the </run> field"), new ExpectShownStep("the results"), new ClickStep("Next")];
+        StepResult[] results =
+        [
+            new(1, steps[0], StepOutcome.Done, "Typed in read-from-app.", null),
+            new(2, steps[1], StepOutcome.CheckFailed, "read-from-app", null),
+        ];
+
+        session.AddRun(steps, new StepRunResult(Verdict.Failed, results, "/folder"));
+        await DrainAsync(session.StreamReplyAsync("how did it go?", Ct));
+
+        var note = client.Calls[0].Single(m => m.Text.StartsWith("VERA ran steps", StringComparison.Ordinal)).Text;
+        note.Split("</run>").Length.ShouldBe(2);
+        note.ShouldContain("\"verdict\":\"Failed\"");
+        note.ShouldContain("\"outcome\":\"done\"");
+        note.ShouldContain("\"outcome\":\"check failed\"");
+        note.ShouldContain("\"outcome\":\"not run\"");
+        note.ShouldNotContain("typed-word");
+        note.ShouldNotContain("read-from-app");
+    }
+
+    [Fact]
+    public void A_run_that_an_error_stopped_says_at_which_step()
+    {
+        var session = NewSession(new FakeChatClient("ok"));
+
+        session.AddRun([new ClickStep("Next"), new ClickStep("Done")], new StepRunResult(Verdict.Inconclusive, [], "/folder", new InvalidOperationException("key-in-error")));
+
+        session.History[^1].Text.ShouldContain("\"outcome\":\"stopped here\"");
+        session.History[^1].Text.ShouldContain("\"outcome\":\"not run\"");
+        session.History[^1].Text.ShouldNotContain("key-in-error");
+    }
+
+    [Fact]
     public void The_examples_in_the_prompt_are_steps_VERA_can_run()
     {
         var examples = ChatSession.SystemPrompt[ChatSession.SystemPrompt.IndexOf("Should I test this?", StringComparison.Ordinal)..]
