@@ -152,6 +152,44 @@ public sealed class GeminiChatClientFactoryTests
     }
 
     [Fact]
+    public async Task A_server_that_stays_busy_while_streaming_ends_with_the_busy_message()
+    {
+        var time = new FakeTimeProvider();
+        var recorder = new Recorder(_ => Reply(HttpStatusCode.ServiceUnavailable, """{"error":{"code":503,"message":"The model is overloaded.","status":"UNAVAILABLE"}}"""));
+        using var client = Create(Profile(), recorder, time: time);
+
+        var call = ReadAllAsync(client.GetStreamingResponseAsync("hi", cancellationToken: Ct));
+        for (var i = 0; i < 1000 && !call.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(2, Ct);
+        }
+
+        (await Should.ThrowAsync<LlmRateLimitException>(() => call)).Message.ShouldBe(GeminiErrorHandler.BusyMessage);
+        recorder.Requests.Count.ShouldBe(1 + RateLimitChatClient.MaxRetries);
+    }
+
+    [Fact]
+    public async Task A_stream_that_starts_on_a_busy_server_is_retried_by_VERA()
+    {
+        var time = new FakeTimeProvider();
+        var recorder = new Recorder(n => n == 1
+            ? Reply(HttpStatusCode.ServiceUnavailable, """{"error":{"code":503,"status":"UNAVAILABLE"}}""")
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(StreamOf("hello"), Encoding.UTF8, "text/event-stream") });
+        using var client = Create(Profile(), recorder, time: time);
+
+        var call = ReadAllAsync(client.GetStreamingResponseAsync("hi", cancellationToken: Ct));
+        for (var i = 0; i < 1000 && !call.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(2, Ct);
+        }
+
+        (await call).ShouldBe("hello");
+        recorder.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task A_stream_yields_the_text_and_the_usage()
     {
         const string sse = """
@@ -180,6 +218,20 @@ public sealed class GeminiChatClientFactoryTests
 
     private static IChatClient Create(LlmProfile profile, Recorder recorder, FakeSecretStore? secrets = null, TimeProvider? time = null) =>
         GeminiChatClientFactory.Create(profile, secrets ?? new FakeSecretStore(("gemini", TestKey)), recorder.Handler, time ?? TimeProvider.System);
+
+    private static async Task<string> ReadAllAsync(IAsyncEnumerable<ChatResponseUpdate> updates)
+    {
+        var text = new StringBuilder();
+        await foreach (var update in updates)
+        {
+            text.Append(update.Text);
+        }
+
+        return text.ToString();
+    }
+
+    private static string StreamOf(string text) =>
+        $$"""data: {"id":"c1","object":"chat.completion.chunk","created":1,"model":"gemini-3.5-flash-lite","choices":[{"index":0,"delta":{"role":"assistant","content":"{{text}}"},"finish_reason":"stop"}]}""" + "\n\ndata: [DONE]\n\n";
 
     private static HttpResponseMessage Ok() => Reply(HttpStatusCode.OK, Completion);
 
