@@ -11,7 +11,8 @@ namespace Vera.Adapters.Mac;
 /// Actions use the latest <see cref="GetScreenStateAsync"/>: its element ids, and its screenshot for mapping clicks, so read the screen right before acting.
 /// As on Windows, starting an app is not supported yet: it attaches to a running one.
 /// </summary>
-public sealed class MacAdapter(IScreen screen) : IAppAdapter
+/// <param name="picked">The window the tester picked, when the app has several; null uses the app's main window.</param>
+public sealed class MacAdapter(IScreen screen, MacPickedWindows? picked = null) : IAppAdapter
 {
     private const string WindowGone = "The app is closed or has no window.";
     private const string WindowMinimized = "The app's window is minimized. Restore it and try again.";
@@ -192,7 +193,7 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
 
     private async Task<ScreenState> ReadWindowAsync(CancellationToken ct)
     {
-        var window = CopyMainWindow();
+        var window = CopyWindow();
         if (window == IntPtr.Zero)
         {
             throw new InvalidOperationException(WindowGone);
@@ -283,6 +284,63 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
         var x = r.X + (r.Width / 2);
         var y = r.Y + (r.Height / 2);
         return x >= area.X && x < area.X + area.Width && y >= area.Y && y < area.Y + area.Height;
+    }
+
+    // The picked window, the app's main window when there is none.
+    private IntPtr CopyWindow()
+    {
+        var main = CopyMainWindow();
+        if (picked is null)
+        {
+            return main;
+        }
+
+        var windows = Copy(_app, "AXWindows");
+        try
+        {
+            var open = new Dictionary<long, IntPtr>();
+            for (nint i = 0; MacNative.IsArray(windows) && i < MacNative.CFArrayGetCount(windows); i++)
+            {
+                var window = MacNative.CFArrayGetValueAtIndex(windows, i);
+                if (NumberOf(window) is { } number)
+                {
+                    open[number] = window;
+                }
+            }
+
+            if (picked.Choose(_processId, main == IntPtr.Zero ? null : NumberOf(main), open.Keys) is not { } chosen || !open.TryGetValue(chosen, out var copy))
+            {
+                return main;
+            }
+
+            // Kept before the list and the main window are let go: it can be the main window.
+            copy = MacNative.CFRetain(copy);
+            if (main != IntPtr.Zero)
+            {
+                MacNative.CFRelease(main);
+            }
+
+            return copy;
+        }
+        finally
+        {
+            if (windows != IntPtr.Zero)
+            {
+                MacNative.CFRelease(windows);
+            }
+        }
+    }
+
+    private static long? NumberOf(IntPtr window)
+    {
+        try
+        {
+            return MacNative._AXUIElementGetWindow(window, out var number) == MacNative.AxSuccess ? number : null;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return null;
+        }
     }
 
     // Main window first; an app in the middle of launching may only list its windows.
@@ -460,7 +518,7 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
             async () =>
             {
                 var (_, _, readPoints) = LatestReading();
-                var window = CopyMainWindow();
+                var window = CopyWindow();
                 if (window == IntPtr.Zero)
                 {
                     throw new InvalidOperationException(WindowGone);
@@ -488,8 +546,15 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
 
     private async Task BringToFrontAsync(IntPtr window, CancellationToken ct)
     {
-        if (ReadBool(_app, "AXFrontmost") != true)
+        // Not the app's main window: another window of the app may cover it.
+        var main = ReadBool(window, "AXMain") != false;
+        if (ReadBool(_app, "AXFrontmost") != true || !main)
         {
+            if (!main)
+            {
+                _ = MacNative.AXUIElementSetAttributeValue(window, MacNative.Key("AXMain"), MacNative.CfTrue());
+            }
+
             _ = MacNative.AXUIElementSetAttributeValue(_app, MacNative.Key("AXFrontmost"), MacNative.CfTrue());
             _ = MacNative.AXUIElementPerformAction(window, MacNative.Key("AXRaise"));
             await Task.Delay(RedrawTime, ct).ConfigureAwait(false);

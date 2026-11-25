@@ -55,6 +55,11 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
         return now is not null && !string.Equals(now, last.ListedTitle, StringComparison.Ordinal);
     }
 
-    private string? ListedTitle(int processId) =>
-        runningApps.List().FirstOrDefault(a => a.ProcessId == processId) is { WindowTitle.Length: > 0 } app ? app.WindowTitle : null;
+    private string? ListedTitle(int processId)
+    {
+        var title = runningApps is IPickedWindows windows
+            ? windows.TitleOf(processId)
+            : runningApps.List().FirstOrDefault(a => a.ProcessId == processId)?.WindowTitle;
+        return string.IsNullOrEmpty(title) ? null : title;
+    }
 }
