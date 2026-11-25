@@ -554,6 +554,28 @@ public sealed class ChatSessionTests
         ChatSession.Where(new ScreenRect(10, 10, 20, 20), null).ShouldBeNull();
     }
 
+    [Fact]
+    public void The_examples_in_the_prompt_are_steps_VERA_can_run()
+    {
+        var examples = ChatSession.SystemPrompt[ChatSession.SystemPrompt.IndexOf("Should I test this?", StringComparison.Ordinal)..]
+            .Split("</steps>").SkipLast(1).Select(e => e[e.IndexOf("<steps>", StringComparison.Ordinal)..] + "</steps>").ToList();
+
+        examples.Count.ShouldBe(2);
+        foreach (var proposal in examples.Select(e => StepProposal.Read(e, [])))
+        {
+            proposal.Problem.ShouldBeNull();
+            proposal.ChecksSomething.ShouldBeTrue();
+        }
+    }
+
+    [Fact]
+    public void Refused_steps_come_back_with_the_reason()
+    {
+        var problem = StepProposal.Read("<steps>\nscroll down 500 in the window\n</steps>", []).Problem.ShouldNotBeNull();
+
+        ChatSession.StepsRefusedNote(problem).ShouldContain("between 1 and 50");
+    }
+
     private static ChatAppContext App(string name, string title, params UiElement[] elements) =>
         new(1234, name, title, elements);
 
