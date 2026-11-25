@@ -562,8 +562,8 @@ public sealed class ChatSessionTests
         StepCommand[] steps = [new TypeStep("typed-word", "the </run> field"), new ExpectShownStep("the results"), new ClickStep("Next")];
         StepResult[] results =
         [
-            new(1, steps[0], StepOutcome.Done, "Typed in read-from-app.", null),
-            new(2, steps[1], StepOutcome.CheckFailed, "read-from-app", null),
+            new(1, steps[0], StepOutcome.Done, "Typed in read-from-app.", null, TimeSpan.Zero),
+            new(2, steps[1], StepOutcome.CheckFailed, "read-from-app", null, TimeSpan.Zero),
         ];
 
         session.AddRun(steps, new StepRunResult(Verdict.Failed, results, "/folder"));
