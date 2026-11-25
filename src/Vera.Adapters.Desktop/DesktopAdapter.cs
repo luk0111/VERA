@@ -90,7 +90,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     public async Task ScrollAsync(int elementId, int deltaY, int deltaX, CancellationToken ct)
     {
         var (state, window) = LatestReading();
-        var point = PointOf(state, window, elementId);
+        var point = PointOf(state, window, elementId, orWindow: true);
 
         await BeforeActingAsync(window, ct).ConfigureAwait(false);
         await ActAsync(() => screen.ScrollAsync(point.X, point.Y, deltaY, deltaX, ct)).ConfigureAwait(false);
@@ -120,9 +120,10 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     }
 
     // The point to act on for an element of the latest reading, in its screenshot's pixels.
-    private static (int X, int Y) PointOf(ScreenState state, ScreenRect window, int elementId)
+    // Element 0, the window, only to scroll in: a click in its middle would hit whatever happens to be there.
+    private static (int X, int Y) PointOf(ScreenState state, ScreenRect window, int elementId, bool orWindow = false)
     {
-        var element = state.Elements.FirstOrDefault(e => e.Id >= 1 && e.Id == elementId)
+        var element = state.Elements.FirstOrDefault(e => e.Id >= (orWindow ? 0 : 1) && e.Id == elementId)
             ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
         return ClickPoint.Of(element.Bounds, window)
             ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");

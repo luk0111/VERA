@@ -5,39 +5,66 @@ using System.Text;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Vera.Application;
+using Vera.Core;
 using Vera.Files;
 using Vera.Llm;
 
 namespace Vera.Cli.Screens;
 
-/// <summary>Chat with the model about the selected app. Replies stream in; the session remembers the conversation.</summary>
+/// <summary>
+/// Talk with VERA about the selected app: ask about it, find elements, and have it propose steps that the tester then runs, edits or saves.
+/// Replies stream in; the session remembers the conversation.
+/// </summary>
 internal static class ChatScreen
 {
+    private const string Title = "Start testing an app";
     private const string ExitCommand = "/back";
     private const string ClearCommand = "/clear";
     private const string RefreshCommand = "/refresh";
     private const string ElementsCommand = "/elements";
+    private const string StepsCommand = "/steps";
+    private const string FindCommand = "/find";
+
+    private enum Proposed
+    {
+        NotNow,
+        Run,
+        Edit,
+        Save,
+    }
 
     private static readonly Color Neon = new(57, 255, 20);
 
     // Redrawing on every token flickers
     private static readonly TimeSpan RedrawInterval = TimeSpan.FromMilliseconds(50);
 
-    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader)
+    private static readonly TimeSpan WaitingTick = TimeSpan.FromSeconds(1);
+
+    // From here on the wait is longer than usual, so it says what may be going on and how to stop.
+    private static readonly TimeSpan SlowAfter = TimeSpan.FromSeconds(10);
+
+    public static async Task ShowAsync(AppSettings settings, RunningApp app, ChatSession session, ChatAppContextReader appReader, FindElementService find, StepRunner runner, StepFileStore store)
     {
         // The model was checked before the process list (Ui.EnsureModelReadyAsync), so reading the window is worth it.
         Ui.ShowHeader(settings);
-        Ui.Title("Agent chat");
+        Ui.Title(Title);
         await ReadAppAsync(app, session, appReader);
 
         Ui.ShowHeader(settings);
-        Ui.Title("Agent chat");
+        Ui.Title(Title);
         AnsiConsole.Write(SessionPanel(settings, app, session));
         AnsiConsole.MarkupLine(
-            $"[grey]Describe what to test and press Enter. Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
+            $"[grey]Say what to test, e.g. [teal]check that searching works[/], and VERA proposes the steps. [teal]find the search button[/] shows where it is, [teal]{StepsCommand}[/] writes, records or loads steps.[/]");
+        AnsiConsole.MarkupLine(
+            $"[grey]Type [teal]{RefreshCommand}[/] after the app's window changes, [teal]{ElementsCommand}[/] to see what VERA reads in it, [teal]{ClearCommand}[/] to start over or [teal]{ExitCommand}[/] to return to the main menu.[/]");
         AnsiConsole.MarkupLine($"[grey]Attach a text or PDF file: [teal]{Markup.Escape(FileCommand.Usage)}[/][/]");
         AnsiConsole.WriteLine();
 
+        // The steps found or proposed so far, kept for /steps.
+        var draft = new Draft();
+
+        // VERA acted in the app, so what the model was told about the window may be old.
+        var acted = false;
         while (true)
         {
             var message = Ask();
@@ -48,7 +75,12 @@ internal static class ChatScreen
 
             if (Is(message, ExitCommand))
             {
-                return;
+                if (StepsScreen.MayLose(store, draft.Steps))
+                {
+                    return;
+                }
+
+                continue;
             }
 
             if (Is(message, ClearCommand))
@@ -74,6 +106,36 @@ internal static class ChatScreen
                 continue;
             }
 
+            if (Is(message, StepsCommand))
+            {
+                draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, draft.Steps, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
+
+                // Finding there can click or type too.
+                acted = true;
+                ShowSessionAgain(settings, app, session);
+                continue;
+            }
+
+            if (FindInSteps.AskedInChat(message) is { } what)
+            {
+                var (step, didAct) = await FindInSteps.RunAsync(settings, app, find, what);
+                acted |= didAct;
+                if (step is not null)
+                {
+                    // Steps VERA proposed and the tester left alone aren't theirs: a found step starts a new list.
+                    if (!draft.Steps.Own)
+                    {
+                        draft.Steps = new StepChain();
+                    }
+
+                    draft.Steps.Steps.Add(step);
+                    AnsiConsole.MarkupLine($"[grey]Step {draft.Steps.Steps.Count} >[/] {Markup.Escape(step.ToString())} [grey](type[/] [teal]{StepsCommand}[/] [grey]to see, run or save your steps)[/]");
+                }
+
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
             if (FileCommand.IsFileCommand(message))
             {
                 // With a question, the file is attached and the question is sent as the next message.
@@ -91,7 +153,7 @@ internal static class ChatScreen
             if (message.StartsWith('/') && !message.Contains(' ', StringComparison.Ordinal))
             {
                 AnsiConsole.MarkupLine(
-                    $"[yellow]{Markup.Escape(message)} isn't a command.[/] [grey]Commands: [teal]{RefreshCommand}[/], [teal]{ElementsCommand}[/], [teal]{ClearCommand}[/], [teal]{FileCommand.Name}[/], [teal]{ExitCommand}[/].[/]");
+                    $"[yellow]{Markup.Escape(message)} isn't a command.[/] [grey]Commands: [teal]{RefreshCommand}[/], [teal]{ElementsCommand}[/], [teal]{FindCommand}[/], [teal]{StepsCommand}[/], [teal]{ClearCommand}[/], [teal]{FileCommand.Name}[/], [teal]{ExitCommand}[/].[/]");
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -104,9 +166,142 @@ internal static class ChatScreen
                     $"[grey]The window changed to[/] [teal]{Markup.Escape(session.App?.WindowTitle ?? "")}[/][grey], VERA read it again:[/] {WindowSummary(session.App)}");
             }
 
-            await StreamReplyAsync(settings, app, session, message);
+            // The title is often the same after VERA clicked or typed.
+            else if (acted && session.App is not null)
+            {
+                await ReadAppAsync(app, session, appReader);
+            }
+
+            acted = false;
+            var reply = await StreamReplyAsync(settings, app, session, message);
             AnsiConsole.WriteLine();
+            if (reply is null)
+            {
+                continue;
+            }
+
+            var proposal = StepProposal.Read(reply, settings.ApiKeyNames);
+            if (proposal.Problem is { } problem)
+            {
+                // Once: without hearing why, the model writes the same steps again.
+                AnsiConsole.MarkupLine($"[grey]VERA's steps can't be used: {Markup.Escape(problem)} Asking VERA to correct them…[/]");
+                reply = await StreamReplyAsync(settings, app, session, ChatSession.StepsRefusedNote(problem));
+                AnsiConsole.WriteLine();
+                if (reply is null)
+                {
+                    continue;
+                }
+
+                proposal = StepProposal.Read(reply, settings.ApiKeyNames);
+            }
+
+            acted = await OfferStepsAsync(settings, app, session, find, runner, store, draft, proposal);
         }
+    }
+
+    // Shows the steps the model proposed; only the tester can run them. True when VERA acted in the app.
+    // The proposal becomes the steps /steps opens, unless the tester has steps of their own there.
+    private static async Task<bool> OfferStepsAsync(
+        AppSettings settings, RunningApp app, ChatSession session, FindElementService find, StepRunner runner, StepFileStore store, Draft draft, StepProposal proposal)
+    {
+        if (proposal.Problem is { } problem)
+        {
+            AnsiConsole.MarkupLine($"[yellow]VERA's steps still can't be used: {Markup.Escape(problem)}[/] [grey]Say it another way, or write them with[/] [teal]{StepsCommand}[/][grey].[/]");
+            AnsiConsole.WriteLine();
+            return false;
+        }
+
+        if (proposal.Steps.Count == 0)
+        {
+            return false;
+        }
+
+        var steps = proposal.Steps;
+        var chain = StepChain.Proposed(steps);
+        if (!draft.Steps.Unsaved)
+        {
+            draft.Steps = chain;
+        }
+
+        StepsScreen.ShowSteps(steps);
+        var look = steps.Select((step, i) => (step, number: i + 1)).Where(s => StepProposal.DeservesALook(s.step)).Select(s => s.number).ToList();
+        if (look.Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]Look at step {string.Join(", ", look)} before you run: it may send, change or delete something, or type a saved secret. The AI wrote these steps.[/]");
+        }
+
+        if (!proposal.ChecksSomething)
+        {
+            AnsiConsole.MarkupLine("[yellow]No step checks a result, so \"Passed\" would only mean the steps could be done.[/] [grey]Choose Edit to add one, e.g. expect the results list.[/]");
+        }
+
+        var acted = false;
+        while (true)
+        {
+            AnsiConsole.WriteLine();
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<Proposed>()
+                    .Title(acted ? "What next?" : "Do you want to test this?")
+                    .HighlightStyle(Ui.Highlight)
+                    .AddChoices(Enum.GetValues<Proposed>())
+                    .UseConverter(p => p switch
+                    {
+                        Proposed.Run => acted ? "Run them again" : $"Run them in {Markup.Escape(app.Name)}",
+                        Proposed.Edit => "Edit them",
+                        Proposed.Save => "Save them",
+                        _ => acted ? "Back to the chat" : "Not now",
+                    }));
+            switch (choice)
+            {
+                case Proposed.Run:
+                    acted = true;
+                    if (await StepsScreen.RunAsync(settings, app, runner, steps) is { } result)
+                    {
+                        session.AddRun(steps, result);
+                    }
+
+                    break;
+                case Proposed.Edit:
+                    // The edited steps take the place of the ones the chat holds.
+                    if (draft.Steps != chain && !StepsScreen.MayLose(store, draft.Steps, "Replace them with VERA's steps?", "Replace them (yours are lost)", "Keep mine"))
+                    {
+                        break;
+                    }
+
+                    draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, chain, session.AddRun);
+                    ShowSessionAgain(settings, app, session);
+
+                    // Finding there can click or type too, not only a run.
+                    return true;
+                case Proposed.Save:
+                    StepsScreen.Save(store, chain);
+                    break;
+                default:
+                    if (!acted && draft.Steps == chain)
+                    {
+                        AnsiConsole.MarkupLine($"[grey]Type[/] [teal]{StepsCommand}[/] [grey]to run, edit or save them later.[/]");
+                    }
+
+                    AnsiConsole.WriteLine();
+                    return acted;
+            }
+        }
+    }
+
+    private static void ShowSessionAgain(AppSettings settings, RunningApp app, ChatSession session)
+    {
+        Ui.ShowHeader(settings);
+        Ui.Title(Title);
+        AnsiConsole.Write(SessionPanel(settings, app, session));
+        AnsiConsole.MarkupLine("[grey]The conversation goes on: VERA remembers what was said.[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    // The steps /steps opens: the last ones VERA proposed, or the tester's own.
+    private sealed class Draft
+    {
+        public StepChain Steps { get; set; } = new();
     }
 
     // Returns the question to send next, or null when there is nothing to send: the tester gave no question, or the file was not attached.
@@ -137,7 +332,8 @@ internal static class ChatScreen
         }
     }
 
-    private static async Task StreamReplyAsync(AppSettings settings, RunningApp app, ChatSession session, string message)
+    // The whole reply when it finished; null when it was stopped or failed.
+    private static async Task<string?> StreamReplyAsync(AppSettings settings, RunningApp app, ChatSession session, string message)
     {
         var reply = new StringBuilder();
 
@@ -159,12 +355,31 @@ internal static class ChatScreen
                     // The live view draws nothing until it is refreshed, so "thinking…" would stay hidden until the first chunk.
                     ctx.Refresh();
                     var sinceRedraw = Stopwatch.StartNew();
-                    await foreach (var chunk in session.StreamReplyAsync(message, stop.Token))
+                    var sinceSent = Stopwatch.StartNew();
+                    await using var chunks = session.StreamReplyAsync(message, stop.Token).GetAsyncEnumerator(stop.Token);
+                    while (true)
                     {
-                        reply.Append(chunk);
+                        // Nothing arrives while the model thinks or its provider is busy: count the seconds, so the screen doesn't look frozen.
+                        var next = chunks.MoveNextAsync().AsTask();
+                        while (await Task.WhenAny(next, Task.Delay(WaitingTick)) != next)
+                        {
+                            if (StepProposal.Visible(reply.ToString()).Length == 0)
+                            {
+                                ctx.UpdateTarget(ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed));
+                            }
+                        }
+
+                        if (!await next)
+                        {
+                            break;
+                        }
+
+                        reply.Append(chunks.Current);
                         if (sinceRedraw.Elapsed >= RedrawInterval)
                         {
-                            ctx.UpdateTarget(ReplyPanel(reply.ToString()));
+                            // Only steps so far, which are not shown here: still thinking.
+                            var soFar = StepProposal.Visible(reply.ToString());
+                            ctx.UpdateTarget(soFar.Length == 0 ? ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed) : ReplyPanel(soFar));
                             sinceRedraw.Restart();
                         }
                     }
@@ -173,26 +388,26 @@ internal static class ChatScreen
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
             // The session keeps the user message and adds no assistant message for a stopped reply.
-            if (reply.Length > 0)
+            if (StepProposal.Visible(reply.ToString()) is { Length: > 0 } arrived)
             {
-                AnsiConsole.Write(ReplyPanel(reply.ToString()));
+                AnsiConsole.Write(ReplyPanel(arrived));
             }
 
             AnsiConsole.MarkupLine("[grey](stopped)[/]");
-            return;
+            return null;
         }
 #pragma warning disable CA1031 // Any failure of one reply is shown in the chat; the chat itself must stay open.
         catch (Exception e)
 #pragma warning restore CA1031
         {
             // Keep what already arrived on screen, then explain what went wrong.
-            if (reply.Length > 0)
+            if (StepProposal.Visible(reply.ToString()) is { Length: > 0 } arrived)
             {
-                AnsiConsole.Write(ReplyPanel(reply.ToString()));
+                AnsiConsole.Write(ReplyPanel(arrived));
             }
 
             ShowError(settings, app, session, e);
-            return;
+            return null;
         }
         finally
         {
@@ -206,7 +421,9 @@ internal static class ChatScreen
         }
         else
         {
-            AnsiConsole.Write(ReplyPanel(reply.ToString()));
+            // Some replies are only steps, without the sentence the model was asked for.
+            var text = StepProposal.Visible(reply.ToString());
+            AnsiConsole.Write(ReplyPanel(text.Length == 0 ? "Should I test this?" : text));
         }
 
         // Also after a blank reply: many tokens with no text means the model spent them on hidden reasoning.
@@ -216,6 +433,7 @@ internal static class ChatScreen
         }
 
         SetConnection(settings, app, session, ConnectionState.Connected, "");
+        return reply.ToString();
     }
 
     // e.g. "212 tokens · 3.4 s · 62 tokens/s". Tokens include hidden reasoning, so they can exceed the visible text.
@@ -289,10 +507,10 @@ internal static class ChatScreen
     }
 
     // Model text is shown as a Text widget, never as markup, so "[" and "]" in a reply can't break rendering.
-    private static Panel ReplyPanel(string? text)
+    private static Panel ReplyPanel(string? text, string provider = "", TimeSpan waited = default)
     {
         IRenderable body = text is null
-            ? new Markup("[grey]thinking…[/]")
+            ? new Markup(Thinking(provider, waited))
             : new Text(text, new Style(Neon));
 
         return new Panel(body)
@@ -300,6 +518,14 @@ internal static class ChatScreen
             .Border(BoxBorder.Rounded)
             .BorderColor(Neon)
             .Padding(1, 0);
+    }
+
+    private static string Thinking(string provider, TimeSpan waited)
+    {
+        var seconds = ((int)waited.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+        return waited < WaitingTick ? "[grey]thinking…[/]"
+            : waited < SlowAfter ? $"[grey]thinking… {seconds} s[/]"
+            : $"[grey]thinking… {seconds} s[/]\n[yellow]{Markup.Escape(provider)} is slow or busy. VERA tries again by itself for a while. Press Ctrl+C to stop waiting.[/]";
     }
 
     private static Panel SessionPanel(AppSettings settings, RunningApp app, ChatSession session)

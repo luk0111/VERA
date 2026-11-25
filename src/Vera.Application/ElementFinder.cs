@@ -11,11 +11,31 @@ namespace Vera.Application;
 /// </summary>
 internal static partial class ElementFinder
 {
+    /// <summary>What a wrong answer costs, so what the model is warned about.</summary>
+    public enum Care
+    {
+        /// <summary>To act on it: the closest thing is usually what the tester means.</summary>
+        Act,
+
+        /// <summary>To check that it's there: the closest thing would pass a test that failed.</summary>
+        MustMatch,
+
+        /// <summary>To check that it's gone: overlooking it would pass a test that failed.</summary>
+        MustBeGone,
+    }
+
+    // Asked to click something, a model tends to pick the closest thing, e.g. a grey cat for "the picture with an orange cat".
+    private const string MustMatch =
+        ". Answer fail if it isn't on the screen, which is fine: don't pick the closest thing. Before answering click, check in the screenshot that the element really is what is asked for, its picture and its colour too";
+
+    private const string MustBeGone =
+        ". Answer fail only if it isn't anywhere on the screen. Look at the whole screenshot, also at the text inside rows and items: if it is still there, click it or the row or item that shows it";
+
     internal const string NoElementsReason = "VERA can't see any buttons or fields in this window. Is it minimized?";
 
     /// <summary>The element and the model's reason; the element is null when the model found none.</summary>
     /// <exception cref="UnreadableAnswerException">The model answered twice without a valid action.</exception>
-    public static async Task<(UiElement? Element, string Reason)> FindAsync(ILlmClient llm, ScreenState screen, AppTarget target, string what, CancellationToken ct)
+    public static async Task<(UiElement? Element, string Reason)> FindAsync(ILlmClient llm, ScreenState screen, AppTarget target, string what, CancellationToken ct, Care care = Care.Act)
     {
         if (screen.Elements.Count <= 1)
         {
@@ -24,14 +44,32 @@ internal static partial class ElementFinder
 
         // "Has been clicked", not "is found": the model answers "done" once the expected result is on screen, and a visible element is already found.
         var element = Article().IsMatch(what) ? what : $"the {what}";
-        var task = new TestTask($"Click {element}", $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked", target);
+        var warning = care switch { Care.MustMatch => MustMatch, Care.MustBeGone => MustBeGone, _ => "" };
+        var task = new TestTask($"Click {element}", $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked{warning}", target);
         var action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
+
+        // A field that already has the focus (e.g. Wikipedia's search field) looks clicked, so the model may answer "done" instead of pointing at it.
+        if (action.Type is not (AgentActionType.Click or AgentActionType.Type or AgentActionType.Fail))
+        {
+            task = task with
+            {
+                Description = $"Click {element}, even if it is already selected or focused",
+                ExpectedResult = $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked one more time{warning}",
+            };
+            action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
+        }
 
         var found = action.Type is AgentActionType.Click or AgentActionType.Type
             ? screen.Elements.FirstOrDefault(e => e.Id > 0 && e.Id == action.TargetId)
             : null;
         return (found, action.Reason);
     }
+
+    /// <summary>Whether the description means the whole window, e.g. <c>the page</c>. The model can't point at it: it has no number. Only a scroll uses it.</summary>
+    public static bool MeansWindow(string description) => WholeWindow().IsMatch(description);
+
+    [GeneratedRegex(@"^\s*(the\s+)?(whole\s+|main\s+|app\s+|browser\s+)?(window|page|web\s?page|screen)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex WholeWindow();
 
     /// <summary>
     /// The element found in an earlier reading, in a new one: same role, name and locator, the nearest to its old place. No model call.

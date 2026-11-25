@@ -13,6 +13,9 @@ internal sealed class AppSettings
 
     public ConfiguredModel? SelectedModel { get; set; }
 
+    /// <summary>The names of the secrets that hold VERA's own API keys, never the keys.</summary>
+    public IReadOnlyList<string> ApiKeyNames => ConfiguredModels.Where(m => !string.IsNullOrWhiteSpace(m.ApiKeyName)).Select(m => m.ApiKeyName).ToList();
+
     /// <summary>True when the selected model runs locally and needs no API key.</summary>
     public bool IsLocalModel => SelectedModel is { NeedsApiKey: false };
 

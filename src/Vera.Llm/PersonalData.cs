@@ -17,7 +17,7 @@ public static partial class PersonalData
     public const string Hidden = "[hidden]";
 
     /// <summary>
-    /// Hides personal data inside the app's data blocks of <paramref name="message"/>: <c>&lt;app&gt;</c> (chat) and <c>&lt;elements&gt;</c> (Find an element, the agent).
+    /// Hides personal data inside the app's data blocks of <paramref name="message"/>: <c>&lt;app&gt;</c> (chat), <c>&lt;run&gt;</c> (how a run of steps went, in the chat) and <c>&lt;elements&gt;</c> (Find, steps, the agent).
     /// Text outside them is left as it is: VERA's own instructions, and what the tester typed on purpose.
     /// </summary>
     public static string HideInAppData(string message, IReadOnlyCollection<string> hideWords)
@@ -122,7 +122,7 @@ public static partial class PersonalData
     }
 
     // Only a tag followed by JSON: VERA's instructions mention "<app>" in plain text too.
-    [GeneratedRegex(@"(?<open><(?<tag>app|elements)>\s*)(?<json>\{.*?\})(?<close>\s*</\k<tag>>)", RegexOptions.Singleline)]
+    [GeneratedRegex(@"(?<open><(?<tag>app|elements|run)>\s*)(?<json>\{.*?\})(?<close>\s*</\k<tag>>)", RegexOptions.Singleline)]
     private static partial Regex DataBlock();
 
     [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")]

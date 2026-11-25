@@ -9,7 +9,8 @@ using Vera.Adapters.Mac;
 namespace Vera.Cli.Screens;
 
 /// <summary>
-/// Write a chain of steps for the selected app and run it. Each command decides its action; the model finds each element, as in Find.
+/// Find elements in the selected app, write a chain of steps for it and run it. Each command decides its action; the model finds each element.
+/// While writing, <c>find the search button</c> shows where something is and can add it as a step (<see cref="FindInSteps"/>).
 /// VERA runs the steps in order without asking anything in between (except risky clicks, if Settings says so) and ends with a verdict.
 /// Steps can be saved as text files and loaded again (<see cref="StepFileStore"/>), and recorded while the tester does them on Windows or a Mac (#48).
 /// </summary>
@@ -35,6 +36,7 @@ internal static class StepsScreen
         AddMore,
         Edit,
         Save,
+        Other,
         Back,
     }
 
@@ -69,18 +71,120 @@ internal static class StepsScreen
         Back,
     }
 
-    public static async Task ShowAsync(AppSettings settings, RunningApp app, StepRunner runner, StepFileStore store)
+    /// <param name="opened">The chat's steps to start with; none starts at the menu.</param>
+    /// <param name="ran">Told about every run, with the steps that ran.</param>
+    /// <returns>The steps the chat keeps: those worked on here, or <paramref name="opened"/> when the tester left without saving.</returns>
+    public static async Task<StepChain> ShowAsync(
+        AppSettings settings, RunningApp app, FindElementService find, StepRunner runner, StepFileStore store, StepChain opened, Action<IReadOnlyList<StepCommand>, StepRunResult> ran)
     {
-        var chain = await ChooseAsync(settings, app, store);
-        while (chain is not null)
+        StepChain? chain = null;
+        if (opened.Steps.Count > 0)
         {
-            await RunAsync(settings, app, runner, chain.Steps);
-            chain = await AfterRunAsync(settings, app, store, chain);
+            chain = opened.Copy();
+            ShowTop(settings, app);
+            ShowSteps(chain.Steps);
+        }
+
+        while (true)
+        {
+            chain ??= await ChooseAsync(settings, app, find, store);
+            if (chain is null)
+            {
+                return opened;
+            }
+
+            switch (await ReviewAsync(settings, app, find, store, opened, chain))
+            {
+                case Leaving.Other:
+                    chain = null;
+                    continue;
+                case Leaving.Kept:
+                    return chain;
+                case Leaving.ThrownAway:
+                    return opened;
+            }
+
+            Next next;
+            do
+            {
+                ShowTop(settings, app);
+                if (await RunAsync(settings, app, runner, chain.Steps) is { } result)
+                {
+                    ran([.. chain.Steps], result);
+                }
+
+                next = AfterRun(store, opened, chain);
+            }
+            while (next == Next.RunAgain);
+
+            switch (next)
+            {
+                case Next.Edit:
+                    // Then the usual menu: run, add more, edit again or save.
+                    await EditStepsAsync(settings, app, find, chain.Steps);
+                    break;
+                case Next.Other:
+                    chain = null;
+                    break;
+                default:
+                    return Discarded(opened, chain) ? opened : chain;
+            }
         }
     }
 
-    // Write new steps, record them or load saved ones, then save or add to them until the tester runs them; null to go back to the main menu.
-    private static async Task<Chain?> ChooseAsync(AppSettings settings, RunningApp app, StepFileStore store)
+    // Steps the tester left without saving go back to how the chat had them.
+    private static bool Discarded(StepChain opened, StepChain chain) => chain.Unsaved && !chain.Steps.SequenceEqual(opened.Steps);
+
+    /// <summary>Asks before the tester's own unsaved steps are lost. True when they are saved now, may be lost, or there are none.</summary>
+    public static bool MayLose(
+        StepFileStore store, StepChain chain, string question = "Leave anyway?", string lose = "Leave without saving (they are lost)", string stay = "Stay here")
+    {
+        while (chain.Unsaved)
+        {
+            AnsiConsole.WriteLine();
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<Unsaved>()
+                    .Title($"[yellow]You have {chain.Steps.Count} unsaved steps.[/] {question}")
+                    .HighlightStyle(Ui.Highlight)
+                    .AddChoices(Enum.GetValues<Unsaved>())
+                    .UseConverter(u => u switch
+                    {
+                        Unsaved.Save => "Save them",
+                        Unsaved.Lose => lose,
+                        _ => stay,
+                    }));
+            switch (choice)
+            {
+                case Unsaved.Stay:
+                    return false;
+                case Unsaved.Lose:
+                    return true;
+                default:
+                    Save(store, chain);
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    private enum Unsaved
+    {
+        Save,
+        Lose,
+        Stay,
+    }
+
+    private enum Leaving
+    {
+        Run,
+        Other,
+        Kept,
+        ThrownAway,
+    }
+
+    // Write new steps, record them or load saved ones, without running them yet; null to go back to the chat.
+    private static async Task<StepChain?> ChooseAsync(AppSettings settings, RunningApp app, FindElementService find, StepFileStore store)
     {
         while (true)
         {
@@ -100,25 +204,25 @@ internal static class StepsScreen
 
             // With only Write and Back there is nothing to choose.
             var hasMenu = choices.Count > 2;
-            Chain? chain;
+            StepChain? chain;
             if (!hasMenu)
             {
-                chain = new Chain([]);
+                chain = new StepChain();
             }
             else
             {
                 ShowTop(settings, app);
                 var start = AnsiConsole.Prompt(
                     new SelectionPrompt<Start>()
-                        .Title("What do you want to run?")
+                        .Title("What do you want to do?")
                         .HighlightStyle(Ui.Highlight)
                         .AddChoices(choices)
                         .UseConverter(s => s switch
                         {
-                            Start.Write => "Write new steps",
+                            Start.Write => "Find elements and write steps",
                             Start.Record => "Record steps by doing them",
                             Start.Load => $"Load saved steps ({saved.Count})",
-                            _ => "Back to the main menu",
+                            _ => "Back to the chat",
                         }));
                 if (start == Start.Back)
                 {
@@ -129,7 +233,7 @@ internal static class StepsScreen
                 {
                     Start.Load => Load(settings, app, store, saved),
                     Start.Record => await RecordAsync(settings, app),
-                    _ => new Chain([]),
+                    _ => new StepChain(),
                 };
                 if (chain is null)
                 {
@@ -137,26 +241,39 @@ internal static class StepsScreen
                 }
             }
 
-            if (chain.Steps.Count == 0 && !WriteSteps(settings, app, chain.Steps))
+            if (chain.Steps.Count > 0 || await WriteStepsAsync(settings, app, find, chain.Steps))
             {
-                // Without a start menu there is nothing to go back to.
-                if (!hasMenu)
-                {
-                    return null;
-                }
-
-                continue;
+                return chain;
             }
 
-            return Review(settings, app, store, chain) ? chain : null;
+            // Left with /back: ask about what was written, and write on if the tester stays.
+            while (!MayLose(store, chain))
+            {
+                if (await WriteStepsAsync(settings, app, find, chain.Steps))
+                {
+                    return chain;
+                }
+            }
+
+            // Without a start menu there is nothing to go back to.
+            if (!hasMenu)
+            {
+                return null;
+            }
         }
     }
 
-    // Asks what to do with the steps until the tester runs them (true) or goes back to the main menu (false).
-    private static bool Review(AppSettings settings, RunningApp app, StepFileStore store, Chain chain)
+    // Asks what to do with the steps until the tester runs them or goes back to the chat.
+    private static async Task<Leaving> ReviewAsync(AppSettings settings, RunningApp app, FindElementService find, StepFileStore store, StepChain opened, StepChain chain)
     {
         while (true)
         {
+            // Every step was deleted after a run.
+            if (chain.Steps.Count == 0 && !await WriteStepsAsync(settings, app, find, chain.Steps) && chain.Steps.Count == 0)
+            {
+                return Leaving.Kept;
+            }
+
             AnsiConsole.WriteLine();
             var named = chain.Name is null ? "" : $" ([teal]{Markup.Escape(chain.Name)}[/])";
             var ready = AnsiConsole.Prompt(
@@ -170,40 +287,45 @@ internal static class StepsScreen
                         Ready.AddMore => "Add more steps",
                         Ready.Edit => "Edit steps",
                         Ready.Save => "Save these steps",
-                        _ => "Back to the main menu",
+                        Ready.Other => "Other steps (write, record or load)",
+                        _ => "Back to the chat",
                     }));
 
             switch (ready)
             {
                 case Ready.Run:
-                    return true;
+                    return Leaving.Run;
                 case Ready.AddMore:
                     // /back here only stops adding; the steps stay.
-                    WriteSteps(settings, app, chain.Steps);
+                    await WriteStepsAsync(settings, app, find, chain.Steps);
                     break;
                 case Ready.Edit:
-                    EditSteps(settings, app, chain.Steps);
+                    await EditStepsAsync(settings, app, find, chain.Steps);
                     break;
                 case Ready.Save:
                     Save(store, chain);
                     break;
-                default:
-                    return false;
-            }
+                case Ready.Other:
+                    if (MayLose(store, chain))
+                    {
+                        return Leaving.Other;
+                    }
 
-            if (chain.Steps.Count == 0)
-            {
-                // Cleared with /clear or every step deleted, and nothing written since: start over.
-                if (!WriteSteps(settings, app, chain.Steps))
-                {
-                    return false;
-                }
+                    break;
+                default:
+                    // Unchanged steps stay in the chat, so nothing is lost.
+                    if (chain.Steps.SequenceEqual(opened.Steps) || MayLose(store, chain))
+                    {
+                        return Discarded(opened, chain) ? Leaving.ThrownAway : Leaving.Kept;
+                    }
+
+                    break;
             }
         }
     }
 
-    // After a run: run again, save, pick other steps or go back. Returns the steps to run next, or null for the main menu.
-    private static async Task<Chain?> AfterRunAsync(AppSettings settings, RunningApp app, StepFileStore store, Chain chain)
+    // After a run. Other steps and the chat ask first about unsaved steps.
+    private static Next AfterRun(StepFileStore store, StepChain opened, StepChain chain)
     {
         while (true)
         {
@@ -218,36 +340,26 @@ internal static class StepsScreen
                         Next.Edit => "Edit these steps",
                         Next.Save => "Save these steps",
                         Next.Other => "Other steps",
-                        _ => "Back to the main menu",
+                        _ => "Back to the chat",
                     }));
 
             switch (next)
             {
-                case Next.RunAgain:
-                    return chain;
-                case Next.Edit:
-                    // Then the usual menu: run, add more, edit again or save.
-                    EditSteps(settings, app, chain.Steps);
-                    if (chain.Steps.Count == 0 && !WriteSteps(settings, app, chain.Steps))
-                    {
-                        return null;
-                    }
-
-                    return Review(settings, app, store, chain) ? chain : null;
                 case Next.Save:
                     Save(store, chain);
                     AnsiConsole.WriteLine();
                     break;
-                case Next.Other:
-                    return await ChooseAsync(settings, app, store);
+                case Next.Other when !MayLose(store, chain):
+                case Next.Back when !chain.Steps.SequenceEqual(opened.Steps) && !MayLose(store, chain):
+                    break;
                 default:
-                    return null;
+                    return next;
             }
         }
     }
 
     // Picks a saved file and reads it, or deletes it; null when the tester goes back, deletes it or the file can't be read.
-    private static Chain? Load(AppSettings settings, RunningApp app, StepFileStore store, IReadOnlyList<string> saved)
+    private static StepChain? Load(AppSettings settings, RunningApp app, StepFileStore store, IReadOnlyList<string> saved)
     {
         ShowTop(settings, app);
         AnsiConsole.MarkupLine($"[grey]Saved in {Markup.Escape(store.Folder)}[/]");
@@ -289,7 +401,7 @@ internal static class StepsScreen
 
         try
         {
-            var chain = new Chain([.. store.Load(name)]) { Name = name };
+            var chain = StepChain.Loaded(name, store.Load(name));
             ShowTop(settings, app);
             AnsiConsole.MarkupLine($"[grey]Loaded[/] [teal]{Markup.Escape(name)}[/][grey]:[/]");
             ShowSteps(chain.Steps);
@@ -324,7 +436,7 @@ internal static class StepsScreen
     }
 
     // Saves under the name the steps were loaded or saved as, or a new one. Every question here can go back without saving.
-    private static void Save(StepFileStore store, Chain chain)
+    public static void Save(StepFileStore store, StepChain chain)
     {
         var name = chain.Name;
         if (name is not null)
@@ -373,7 +485,7 @@ internal static class StepsScreen
         try
         {
             var path = store.Save(name, chain.Steps);
-            chain.Name = name;
+            chain.MarkSaved(name);
             AnsiConsole.MarkupLine($"[green]Saved {chain.Steps.Count} steps as {Markup.Escape(name)}.[/] [grey]{Markup.Escape(path)}[/]");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -384,7 +496,7 @@ internal static class StepsScreen
 
     // Adds the steps the tester writes, checked line by line, after those already in the list.
     // True when an empty line ends a list that has steps; false for /back.
-    private static bool WriteSteps(AppSettings settings, RunningApp app, List<StepCommand> steps)
+    private static async Task<bool> WriteStepsAsync(AppSettings settings, RunningApp app, FindElementService find, List<StepCommand> steps)
     {
         ShowTop(settings, app);
         ShowHelp();
@@ -415,10 +527,28 @@ internal static class StepsScreen
                 continue;
             }
 
+            if (FindInSteps.Asked(line) is { } what)
+            {
+                if ((await FindInSteps.RunAsync(settings, app, find, what)).Step is { } foundStep)
+                {
+                    steps.Add(foundStep);
+                    AnsiConsole.MarkupLine($"[grey]Step {steps.Count} >[/] {Markup.Escape(foundStep.ToString())}");
+                }
+
+                AnsiConsole.WriteLine();
+                continue;
+            }
+
             try
             {
                 if (StepParser.Parse(line) is { } step)
                 {
+                    if (ExpectGoneStep.Problem(step) is { } problem)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(problem)}[/]");
+                        continue;
+                    }
+
                     steps.Add(step);
                 }
             }
@@ -430,7 +560,7 @@ internal static class StepsScreen
     }
 
     // Watches the tester do the steps in the app until they press Enter here, showing each step as it's written. Null when nothing was recorded.
-    private static async Task<Chain?> RecordAsync(AppSettings settings, RunningApp app)
+    private static async Task<StepChain?> RecordAsync(AppSettings settings, RunningApp app)
     {
         ShowTop(settings, app);
         AnsiConsole.MarkupLine($"Do the steps in [teal]{Markup.Escape(app.Name)}[/]: click, type and press keys as usual.");
@@ -482,7 +612,7 @@ internal static class StepsScreen
         ShowTop(settings, app);
         AnsiConsole.MarkupLine("[grey]Recorded:[/]");
         ShowSteps(steps);
-        return new Chain(steps);
+        return StepChain.Written(steps);
     }
 
     // Elements are written the way Find describes them, e.g. button "Save", so the model finds them again.
@@ -498,7 +628,7 @@ internal static class StepsScreen
         ElementFinder.Describe(new UiElement(0, role, name, new ScreenRect(0, 0, 0, 0), IsEnabled: true, Locator: ""));
 
     // Pick a step, then rewrite it, delete it or add one before it, until the tester is done or no steps are left.
-    private static void EditSteps(AppSettings settings, RunningApp app, List<StepCommand> steps)
+    private static async Task EditStepsAsync(AppSettings settings, RunningApp app, FindElementService find, List<StepCommand> steps)
     {
         const int Done = -1;
         while (steps.Count > 0)
@@ -533,13 +663,13 @@ internal static class StepsScreen
 
             switch (change)
             {
-                case Change.Rewrite when AskStep($"New step {index + 1}") is { } step:
+                case Change.Rewrite when await AskStepAsync(settings, app, find, $"New step {index + 1}") is { } step:
                     steps[index] = step;
                     break;
                 case Change.Delete:
                     steps.RemoveAt(index);
                     break;
-                case Change.AddBefore when AskStep($"New step {index + 1}") is { } step:
+                case Change.AddBefore when await AskStepAsync(settings, app, find, $"New step {index + 1}") is { } step:
                     steps.Insert(index, step);
                     break;
             }
@@ -547,7 +677,7 @@ internal static class StepsScreen
     }
 
     // One step line, checked like when writing steps; null when the tester leaves it empty.
-    private static StepCommand? AskStep(string label)
+    private static async Task<StepCommand?> AskStepAsync(AppSettings settings, RunningApp app, FindElementService find, string label)
     {
         while (true)
         {
@@ -557,10 +687,26 @@ internal static class StepsScreen
                 return null;
             }
 
+            if (FindInSteps.Asked(line) is { } what)
+            {
+                if ((await FindInSteps.RunAsync(settings, app, find, what)).Step is { } foundStep)
+                {
+                    return foundStep;
+                }
+
+                continue;
+            }
+
             try
             {
                 if (StepParser.Parse(line) is { } step)
                 {
+                    if (ExpectGoneStep.Problem(step) is { } problem)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(problem)}[/]");
+                        continue;
+                    }
+
                     return step;
                 }
             }
@@ -571,7 +717,7 @@ internal static class StepsScreen
         }
     }
 
-    private static void ShowSteps(List<StepCommand> steps)
+    public static void ShowSteps(IReadOnlyList<StepCommand> steps)
     {
         for (var i = 0; i < steps.Count; i++)
         {
@@ -579,9 +725,9 @@ internal static class StepsScreen
         }
     }
 
-    private static async Task RunAsync(AppSettings settings, RunningApp app, StepRunner runner, List<StepCommand> steps)
+    /// <returns>How it went; null when the run couldn't start.</returns>
+    public static async Task<StepRunResult?> RunAsync(AppSettings settings, RunningApp app, StepRunner runner, IReadOnlyList<StepCommand> steps)
     {
-        ShowTop(settings, app);
         AnsiConsole.MarkupLine($"[grey]Running {steps.Count} steps. VERA brings the app to the front: don't use the mouse or keyboard until it's done.[/]");
         if (settings.IsLocalModel)
         {
@@ -593,7 +739,7 @@ internal static class StepsScreen
         var stopKey = await StartStopKeyAsync(stop);
         AnsiConsole.WriteLine();
 
-        Func<UiElement, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? element => Task.FromResult(ApproveRisky(element)) : null;
+        Func<string, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? what => Task.FromResult(ApproveRisky(what)) : null;
         StepRunResult result;
         try
         {
@@ -604,7 +750,7 @@ internal static class StepsScreen
 #pragma warning restore CA1031
         {
             Ui.ShowError(settings, e);
-            return;
+            return null;
         }
         finally
         {
@@ -636,6 +782,7 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine($"[grey]Screenshots: {Markup.Escape(result.Folder)}[/]");
         AnsiConsole.MarkupLine("[grey]Click back into this window to continue.[/]");
         AnsiConsole.WriteLine();
+        return result;
     }
 
     // Watches for Esc and says so; null, with a warning, when the system won't let VERA watch the keyboard.
@@ -670,17 +817,17 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine($"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/]");
     }
 
-    // Asked before clicking, or dropping onto, an element with a risky name. The app is in front, so the tester has to come back to this window first.
-    private static bool ApproveRisky(UiElement element)
+    // Asked before a risky click, drop or key. The run brings this window to the front first, and the app back after the answer.
+    private static bool ApproveRisky(string what)
     {
-        AnsiConsole.MarkupLine($"[yellow]The next click or drop is on \"{Markup.Escape(element.Name)}\", which may change or send something.[/]");
-        return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](click back into this window to answer)[/]", defaultValue: false);
+        AnsiConsole.MarkupLine($"[yellow]VERA is about to {Markup.Escape(what)}, which may change or send something.[/]");
+        return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](if you can't type here, click this window first)[/]", defaultValue: false);
     }
 
     private static void ShowTop(AppSettings settings, RunningApp app)
     {
         Ui.ShowHeader(settings);
-        Ui.Title("Run steps in an app");
+        Ui.Title("Steps");
         AnsiConsole.MarkupLine($"[grey]Process:[/] [teal]{Markup.Escape(app.ToString())}[/]");
         AnsiConsole.MarkupLine($"[grey]Model:[/] [teal]{Markup.Escape(settings.ModelLabel)}[/] [grey](finds each element)[/]");
         AnsiConsole.WriteLine();
@@ -692,13 +839,16 @@ internal static class StepsScreen
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey)
             .AddColumns("Step", "Example");
+        table.AddRow("[teal]find <what>[/]", Markup.Escape("find the search button (shows it, then you choose what to do)"));
         table.AddRow("click <what>", Markup.Escape("click the search button"));
         table.AddRow("type \"<text>\" into <what>", Markup.Escape("type \"cats\" into the search box"));
         table.AddRow("press <keys>", Markup.Escape("press enter, press ctrl+s"));
         table.AddRow("scroll <up|down|left|right> <notches> in <what>", Markup.Escape("scroll down 3 in the results list"));
+        table.AddRow("scroll <up|down|left|right> until <what>", Markup.Escape("scroll down until the orange cat"));
         table.AddRow("drag <what> to <where>", Markup.Escape("drag the report file to the Documents folder"));
         table.AddRow("hover over <what>", Markup.Escape("hover over the help icon"));
         table.AddRow("expect <what>", Markup.Escape("expect the results list"));
+        table.AddRow("expect no <what>", Markup.Escape("expect no delete button"));
         table.AddRow("expect <what> contains \"<text>\"", Markup.Escape("expect the search box contains \"cats\""));
         table.AddRow("expect title contains \"<text>\"", Markup.Escape("expect title contains \"cats\""));
         AnsiConsole.Write(table);
@@ -706,14 +856,6 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine(
             $"[grey]One step per line. An empty line ends the list, then you can run or save it. [teal]{ClearCommand}[/] starts over, [teal]{BackCommand}[/] goes back.[/]");
         AnsiConsole.WriteLine();
-    }
-
-    // The steps being written or run, and the name they were loaded or saved as.
-    private sealed class Chain(List<StepCommand> steps)
-    {
-        public List<StepCommand> Steps { get; } = steps;
-
-        public string? Name { get; set; }
     }
 
     // Shows each step the moment it's finished, in order.
