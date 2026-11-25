@@ -75,7 +75,12 @@ internal static class ChatScreen
 
             if (Is(message, ExitCommand))
             {
-                return;
+                if (StepsScreen.MayLose(store, draft.Steps))
+                {
+                    return;
+                }
+
+                continue;
             }
 
             if (Is(message, ClearCommand))
@@ -103,9 +108,7 @@ internal static class ChatScreen
 
             if (Is(message, StepsCommand))
             {
-                var steps = draft.Steps.ToList();
-                await StepsScreen.ShowAsync(settings, app, find, runner, store, steps, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
-                draft.Set(steps);
+                draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, draft.Steps, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
 
                 // Finding there can click or type too.
                 acted = true;
@@ -119,8 +122,14 @@ internal static class ChatScreen
                 acted |= didAct;
                 if (step is not null)
                 {
-                    draft.Add(step);
-                    AnsiConsole.MarkupLine($"[grey]Step {draft.Steps.Count} >[/] {Markup.Escape(step.ToString())} [grey](type[/] [teal]{StepsCommand}[/] [grey]to see, run or save your steps)[/]");
+                    // Steps VERA proposed and the tester left alone aren't theirs: a found step starts a new list.
+                    if (!draft.Steps.Own)
+                    {
+                        draft.Steps = new StepChain();
+                    }
+
+                    draft.Steps.Steps.Add(step);
+                    AnsiConsole.MarkupLine($"[grey]Step {draft.Steps.Steps.Count} >[/] {Markup.Escape(step.ToString())} [grey](type[/] [teal]{StepsCommand}[/] [grey]to see, run or save your steps)[/]");
                 }
 
                 AnsiConsole.WriteLine();
@@ -207,11 +216,11 @@ internal static class ChatScreen
             return false;
         }
 
-        var steps = proposal.Steps.ToList();
-        if (!draft.OwnSteps)
+        var steps = proposal.Steps;
+        var chain = StepChain.Proposed(steps);
+        if (!draft.Steps.Unsaved)
         {
-            draft.Steps.Clear();
-            draft.Steps.AddRange(steps);
+            draft.Steps = chain;
         }
 
         StepsScreen.ShowSteps(steps);
@@ -254,17 +263,14 @@ internal static class ChatScreen
 
                     break;
                 case Proposed.Edit:
-                    await StepsScreen.ShowAsync(settings, app, find, runner, store, steps, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
-
-                    // The tester changed them, so from now on they are the tester's.
-                    draft.Set(steps);
+                    draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, chain, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
                     ShowSessionAgain(settings, app, session);
                     return acted;
                 case Proposed.Save:
-                    StepsScreen.SaveSteps(store, steps);
+                    StepsScreen.Save(store, chain);
                     break;
                 default:
-                    if (!acted && !draft.OwnSteps)
+                    if (!acted && draft.Steps == chain)
                     {
                         AnsiConsole.MarkupLine($"[grey]Type[/] [teal]{StepsCommand}[/] [grey]to run, edit or save them later.[/]");
                     }
@@ -284,37 +290,10 @@ internal static class ChatScreen
         AnsiConsole.WriteLine();
     }
 
-    // The steps /steps opens. OwnSteps: the tester found, wrote or changed them, so a new proposal doesn't replace them.
+    // The steps /steps opens: the last ones VERA proposed, or the tester's own.
     private sealed class Draft
     {
-        public List<StepCommand> Steps { get; } = [];
-
-        public bool OwnSteps { get; private set; }
-
-        public void Add(StepCommand step)
-        {
-            // Steps VERA proposed and the tester left alone aren't theirs: a found step starts a new list.
-            if (!OwnSteps)
-            {
-                Steps.Clear();
-            }
-
-            Steps.Add(step);
-            OwnSteps = true;
-        }
-
-        public void Set(IReadOnlyList<StepCommand> steps)
-        {
-            if (steps.SequenceEqual(Steps))
-            {
-                return;
-            }
-
-            List<StepCommand> copy = [.. steps];
-            Steps.Clear();
-            Steps.AddRange(copy);
-            OwnSteps = copy.Count > 0;
-        }
+        public StepChain Steps { get; set; } = new();
     }
 
     // Returns the question to send next, or null when there is nothing to send: the tester gave no question, or the file was not attached.
