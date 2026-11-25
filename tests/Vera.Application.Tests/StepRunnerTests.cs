@@ -596,6 +596,86 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task After_asking_a_closed_menu_is_opened_again_and_only_then_clicked()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "click delete note"], _ => { menuOpen = false; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        await _adapter.Received(2).ClickAsync(5, Arg.Any<CancellationToken>());
+        await _adapter.Received(1).ClickAsync(6, Arg.Any<CancellationToken>());
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task A_menu_that_stayed_open_is_not_opened_twice()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "expect delete note", "click delete note"], _ => Task.FromResult(true));
+
+        result.Verdict.ShouldBe(Verdict.Passed, result.Steps[^1].Message);
+        await _adapter.Received(1).ClickAsync(5, Arg.Any<CancellationToken>());
+        await _adapter.Received(1).ClickAsync(6, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_menu_that_does_not_open_again_stops_without_a_click()
+    {
+        var menuOpen = false;
+        MenuOpens(() => menuOpen, open => menuOpen = open);
+
+        var result = await RunAsync(["click the more button", "press tab", "click delete note"], _ => { menuOpen = false; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.Steps[^1].Message.ShouldBe("menu \"Delete Note\" isn't there any more after the question, so VERA did nothing.");
+        await _adapter.DidNotReceive().ClickAsync(6, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Something_else_that_is_gone_after_the_question_is_not_brought_back_by_repeating_a_step()
+    {
+        var asked = false;
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => asked ? Screen("Shop", Window, SearchButton) : Screen("Shop", Window, SearchButton, Delete));
+
+        var result = await RunAsync(["click the search button", "click the delete button"], _ => { asked = true; return Task.FromResult(true); });
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        await _adapter.Received(1).ClickAsync(2, Arg.Any<CancellationToken>());
+        await _adapter.DidNotReceive().ClickAsync(4, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_element_that_moved_while_asking_is_clicked_by_its_new_number()
+    {
+        var asked = false;
+        var moved = Delete with { Id = 1, Bounds = new ScreenRect(300, 300, 120, 20) };
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => asked ? Screen("Shop", Window, moved) : Screen("Shop", Window, SearchButton, Delete));
+
+        await RunAsync(["click the delete button"], _ => { asked = true; return Task.FromResult(true); });
+
+        await _adapter.Received(1).ClickAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task VERAs_window_comes_back_before_the_question()
+    {
+        var window = new FrontWindow(77);
+        var front = Substitute.For<IFrontWindow>();
+        front.Current().Returns(window);
+        var order = new List<string>();
+        front.BringBackAsync(window, Arg.Any<CancellationToken>()).Returns(_ => { order.Add("front"); return true; });
+        var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, front);
+
+        await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, Ct);
+
+        order.ShouldBe(["front", "asked"]);
+    }
+
+    [Fact]
     public async Task A_risky_click_that_is_approved_is_done()
     {
         var result = await RunAsync(["click the delete button"], _ => Task.FromResult(true));
@@ -700,6 +780,17 @@ public sealed class StepRunnerTests : IDisposable
 
     private Task<AgentAction> ModelWasAsked(int times) =>
         _llm.Received(times).DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+
+    // "More" (5) opens a menu with "Delete Note" (6).
+    private void MenuOpens(Func<bool> isOpen, Action<bool> open)
+    {
+        var more = new UiElement(5, "SplitButton", "More", new ScreenRect(400, 110, 20, 20), true, "more");
+        var item = new UiElement(6, "MenuItem", "Delete Note", new ScreenRect(400, 200, 80, 20), true, "deleteNote");
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(_ => isOpen() ? Screen("Notes", Window, more, item) : Screen("Notes", Window, more));
+        _adapter.ClickAsync(5, Arg.Any<CancellationToken>()).Returns(_ => { open(true); return Task.CompletedTask; });
+        ModelPoints("the more button", 5);
+        ModelPoints("the delete note", 6);
+    }
 
     private void ModelPointsWhenShown(string description, UiElement element) =>
         _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())

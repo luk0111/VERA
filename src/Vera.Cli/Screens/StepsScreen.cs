@@ -784,11 +784,11 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine($"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/]");
     }
 
-    // Asked before a risky click, drop or key. The app is in front, so the tester has to come back to this window first.
+    // Asked before a risky click, drop or key. The run brings this window to the front first, and the app back after the answer.
     private static bool ApproveRisky(string what)
     {
         AnsiConsole.MarkupLine($"[yellow]VERA is about to {Markup.Escape(what)}, which may change or send something.[/]");
-        return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](click back into this window to answer)[/]", defaultValue: false);
+        return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](if you can't type here, click this window first)[/]", defaultValue: false);
     }
 
     private static void ShowTop(AppSettings settings, RunningApp app)

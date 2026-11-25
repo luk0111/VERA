@@ -17,7 +17,8 @@ namespace Vera.Application;
 /// </summary>
 /// <param name="pause">How long the app gets to react after each click, type or key press.</param>
 /// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
-public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null)
+/// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step. Null leaves the app in front.</param>
+public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null)
 {
     /// <summary>The pause after each action in the app.</summary>
     public static readonly TimeSpan DefaultPause = TimeSpan.FromSeconds(1);
@@ -54,6 +55,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         var results = new List<StepResult>();
         Exception? stoppedBy = null;
 
+        // The tester just started the run, so VERA's window is in front.
+        var asksIn = front?.Current();
+        Run? opener = null;
+
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
         {
@@ -63,8 +68,16 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 StepResult result;
                 try
                 {
-                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, ct);
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
+
+                    // What may have opened a menu: the last click or hover. Looking changes nothing; anything else does.
+                    opener = steps[i] switch
+                    {
+                        ClickStep or HoverStep => run,
+                        ExpectShownStep or ExpectGoneStep or ExpectContainsStep or ExpectTitleStep => opener,
+                        _ => null,
+                    };
                 }
 #pragma warning disable CA1031 // Any error outside one step's own failures ends the run; the caller gets the steps done so far and the error.
                 catch (Exception e) when (!ct.IsCancellationRequested)
@@ -100,8 +113,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<string, Task<bool>>? approveRisky, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, CancellationToken ct)
     {
+        private StepCommand Step => step;
+
         private readonly Stopwatch _clock = new();
         private ScreenState? _screen;
         private UiElement? _element;
@@ -147,9 +162,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             {
                 case ClickStep click:
                     var button = await UsableAsync(click.Target).ConfigureAwait(false);
-                    if (approveRisky is not null && RiskyWords.IsRisky(button.Name) && !await approveRisky($"click {ElementFinder.Describe(button)}").ConfigureAwait(false))
+                    if (approveRisky is not null && RiskyWords.IsRisky(button.Name))
                     {
-                        throw new StepNotDoneException($"Stopped: clicking {ElementFinder.Describe(button)} wasn't approved.");
+                        await AskAsync($"click {ElementFinder.Describe(button)}", $"clicking {ElementFinder.Describe(button)}").ConfigureAwait(false);
+                        button = await AfterAskingAsync(button).ConfigureAwait(false);
                     }
 
                     await adapter.ClickAsync(button.Id, ct).ConfigureAwait(false);
@@ -170,9 +186,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
 
                 case PressStep press:
-                    if (approveRisky is not null && RiskyWords.IsRiskyKey(press.Keys) && !await approveRisky($"press {press.Keys}").ConfigureAwait(false))
+                    if (approveRisky is not null && RiskyWords.IsRiskyKey(press.Keys))
                     {
-                        throw new StepNotDoneException($"Stopped: pressing {press.Keys} wasn't approved.");
+                        await AskAsync($"press {press.Keys}", $"pressing {press.Keys}").ConfigureAwait(false);
                     }
 
                     await adapter.PressKeyAsync(press.Keys, ct).ConfigureAwait(false);
@@ -210,9 +226,11 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     }
 
                     // The drop target decides what happens, e.g. a "Trash" or "Delete" area.
-                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name) && !await approveRisky($"drop onto {ElementFinder.Describe(drop)}").ConfigureAwait(false))
+                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name))
                     {
-                        throw new StepNotDoneException($"Stopped: dropping onto {ElementFinder.Describe(drop)} wasn't approved.");
+                        await AskAsync($"drop onto {ElementFinder.Describe(drop)}", $"dropping onto {ElementFinder.Describe(drop)}").ConfigureAwait(false);
+                        dragged = StillThere(dragged);
+                        drop = StillThere(drop);
                     }
 
                     await adapter.DragAsync(dragged.Id, drop.Id, ct).ConfigureAwait(false);
@@ -275,6 +293,60 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 default:
                     throw new NotSupportedException($"VERA can't run \"{step}\" yet.");
             }
+        }
+
+        // Asks in VERA's own window, so the tester only has to type the answer, then reads the app again: what was there before may be gone.
+        private async Task AskAsync(string what, string doing)
+        {
+            if (runner.Front is { } front && asksIn is not null)
+            {
+                await front.BringBackAsync(asksIn, ct).ConfigureAwait(false);
+            }
+
+            if (!await approveRisky!(what).ConfigureAwait(false))
+            {
+                throw new StepNotDoneException($"Stopped: {doing} wasn't approved.");
+            }
+
+            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            await runner.PauseAsync(ct).ConfigureAwait(false);
+            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+        }
+
+        // A menu closes when its app is no longer in front. Then what opened it is done once more, but only for a menu:
+        // doing a step twice could otherwise do something twice, e.g. put two of a thing in a cart.
+        private async Task<UiElement> AfterAskingAsync(UiElement element)
+        {
+            if (element.Role == "MenuItem" && ElementFinder.Same(_screen!.Elements, element) is null
+                && opener?._element is { } opened && ElementFinder.Same(_screen.Elements, opened) is { IsEnabled: true } again && !RiskyWords.IsRisky(again.Name))
+            {
+                if (opener.Step is HoverStep)
+                {
+                    await adapter.HoverAsync(again.Id, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await adapter.ClickAsync(again.Id, ct).ConfigureAwait(false);
+                }
+
+                await runner.PauseAsync(ct).ConfigureAwait(false);
+                _clock.Restart();
+                do
+                {
+                    _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+                }
+                while (ElementFinder.Same(_screen.Elements, element) is null && await ReadAgainAsync().ConfigureAwait(false));
+            }
+
+            return StillThere(element);
+        }
+
+        private UiElement StillThere(UiElement element)
+        {
+            _element = ElementFinder.Same(_screen!.Elements, element);
+            return _element is { IsEnabled: true }
+                ? _element
+                : throw new StepNotDoneException($"{ElementFinder.Describe(element)} isn't there any more after the question, so VERA did nothing.");
         }
 
         // The opposite of waiting for an element: waits while it's still there. The model is asked only when the elements changed.
@@ -480,6 +552,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     private ILlmClient Llm => llm;
 
     private ISecretStore Secrets => secrets;
+
+    private IFrontWindow? Front => front;
 
     // A step VERA can't do; the message is shown to the tester.
     private sealed class StepNotDoneException(string message) : Exception(message);

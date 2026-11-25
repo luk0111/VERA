@@ -420,7 +420,7 @@ public sealed class MacAdapter(IScreen screen) : IAppAdapter
         }
     }
 
-    private static bool? ReadBool(IntPtr element, string attribute)
+    internal static bool? ReadBool(IntPtr element, string attribute)
     {
         var value = Copy(element, attribute);
         try
