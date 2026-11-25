@@ -124,8 +124,15 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             {
                 (outcome, message) = (StepOutcome.NotDone, $"Secret \"{e.SecretName}\" isn't saved. Save it in Settings.");
             }
+            catch (InvalidKeyComboException e)
+            {
+                var hint = step is PressStep { Keys: var keys } && !keys.Contains('+', StringComparison.Ordinal)
+                    ? $" To press something on the screen, write click {keys}."
+                    : "";
+                (outcome, message) = (StepOutcome.NotDone, e.Message + hint);
+            }
             catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or UnreadableAnswerException
-                or InvalidKeyComboException or InputRejectedException or ScreenUnavailableException)
+                or InputRejectedException or ScreenUnavailableException)
             {
                 (outcome, message) = (StepOutcome.NotDone, e.Message);
             }

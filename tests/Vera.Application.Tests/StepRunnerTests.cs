@@ -567,7 +567,7 @@ public sealed class StepRunnerTests : IDisposable
         var result = await RunAsync("press entr");
 
         result.Verdict.ShouldBe(Verdict.Inconclusive);
-        result.Steps[0].Message.ShouldBe("Unknown key \"entr\".");
+        result.Steps[0].Message.ShouldBe("Unknown key \"entr\". To press something on the screen, write click entr.");
     }
 
     [Fact]

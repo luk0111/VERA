@@ -64,6 +64,37 @@ public sealed class StepParserTests
         StepParser.Parse(line).ShouldBe(new ScrollStep(direction, notches, target));
 
     [Theory]
+    [InlineData("press on images", "images")]
+    [InlineData("press on the Images tab", "the Images tab")]
+    [InlineData("press the Save button", "the Save button")]
+    [InlineData("press a button", "a button")]
+    [InlineData("press Delete account", "Delete account")]
+    [InlineData("press \"Log in\"", "Log in")]
+    public void Press_on_something_on_the_screen_is_a_click(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new ClickStep(target));
+
+    [Theory]
+    [InlineData("press a", "a")]
+    [InlineData("press the enter key", "enter")]
+    [InlineData("press on enter", "enter")]
+    [InlineData("press the s key", "s")]
+    [InlineData("press page down", "pagedown")]
+    [InlineData("press the down arrow key", "down")]
+    [InlineData("press f5", "f5")]
+    [InlineData("press alt + f4", "alt + f4")]
+    [InlineData("press entr", "entr")]
+    public void Press_with_a_key_stays_a_key(string line, string keys) =>
+        StepParser.Parse(line).ShouldBe(new PressStep(keys));
+
+    [Theory]
+    [InlineData("click on the orange cat", "the orange cat")]
+    [InlineData("Click ON \"Save\"", "Save")]
+    [InlineData("click on", "on")]
+    [InlineData("click on switch", "on switch")]
+    public void Click_on_the_element_is_click_the_element(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new ClickStep(target));
+
+    [Theory]
     [InlineData("scroll down until the orange cat", ScrollDirection.Down, "the orange cat")]
     [InlineData("Scroll UP until you see the title", ScrollDirection.Up, "the title")]
     [InlineData("scroll right until \"the last column\"", ScrollDirection.Right, "the last column")]

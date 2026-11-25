@@ -39,7 +39,7 @@ public static partial class StepParser
         var rest = space < 0 ? "" : text[space..].Trim();
         return command.ToLowerInvariant() switch
         {
-            "click" => new ClickStep(Describe(rest) ?? throw new FormatException("Say what to click, e.g. click the search button.")),
+            "click" => new ClickStep(Describe(OnThe().Replace(rest, "")) ?? throw new FormatException("Say what to click, e.g. click the search button.")),
             "type" => ReadType(rest),
             "press" => ReadPress(rest),
             "scroll" => ReadScroll(rest),
@@ -140,14 +140,62 @@ public static partial class StepParser
         return new TypeStep(value, Describe(after[into.Length..]) ?? throw new FormatException($"Say what to type into, e.g. {TypeExample}."));
     }
 
-    // The keys are the rest of the line as written, e.g. "ctrl+s"; the input layer checks them when the step runs.
-    private static PressStep ReadPress(string rest)
+    // Keys as written, e.g. "ctrl+s"; the input layer checks them when the step runs. People also press things on the screen:
+    // "press on images" and "press the Save button" are clicks. One unknown word alone ("press entr") stays keys: it may be a typo.
+    private static StepCommand ReadPress(string rest)
     {
         var keys = rest.Trim('"').Trim();
-        return keys.Length == 0
-            ? throw new FormatException("Say which keys to press, e.g. press enter or press ctrl+s.")
+        if (keys.Length == 0)
+        {
+            throw new FormatException("Say which keys to press, e.g. press enter or press ctrl+s.");
+        }
+
+        if (keys.Contains('+', StringComparison.Ordinal))
+        {
+            return new PressStep(keys);
+        }
+
+        var said = PressedThing().Match(keys);
+        var name = KeyWord().Replace(said.Groups["what"].Value, "").Trim();
+        if (SpokenKeys.TryGetValue(name, out var key))
+        {
+            return new PressStep(key);
+        }
+
+        // "the s key": the word key says it's one. Otherwise "press a button" would be the key a.
+        var saidKey = name.Length < said.Groups["what"].Value.Length;
+        if (IsKeyName(name) && (saidKey || name == keys || name.Length > 1))
+        {
+            return new PressStep(name);
+        }
+
+        return said.Groups["on"].Success || keys.Any(char.IsWhiteSpace)
+            ? new ClickStep(Describe(OnThing().Replace(keys, "")) ?? keys)
             : new PressStep(keys);
     }
+
+    /// <summary>Whether <paramref name="keys"/> is one key every system has a name for. Combos with + are left to the input layer.</summary>
+    internal static bool IsKeyName(string keys) =>
+        (keys.Length == 1 && char.IsAsciiLetterOrDigit(keys[0])) || NamedKey().IsMatch(keys);
+
+    private static readonly Dictionary<string, string> SpokenKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["page down"] = "pagedown", ["page up"] = "pageup", ["return"] = "enter", ["escape"] = "esc", ["space bar"] = "space", ["spacebar"] = "space",
+        ["arrow down"] = "down", ["down arrow"] = "down", ["arrow up"] = "up", ["up arrow"] = "up",
+        ["arrow left"] = "left", ["left arrow"] = "left", ["arrow right"] = "right", ["right arrow"] = "right",
+    };
+
+    [GeneratedRegex(@"^(?<on>on\s+)?(the\s+)?(?<what>.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    private static partial Regex PressedThing();
+
+    [GeneratedRegex(@"^on\s+(?=\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OnThing();
+
+    [GeneratedRegex(@"\s+key$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex KeyWord();
+
+    [GeneratedRegex(@"^(enter|tab|esc|space|backspace|delete|insert|home|end|pageup|pagedown|left|right|up|down|f([1-9]|1[0-2])|ctrl|cmd|shift|alt|win)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NamedKey();
 
     private static StepCommand ReadExpect(string rest)
     {
@@ -211,6 +259,10 @@ public static partial class StepParser
 
     [GeneratedRegex(@"^(?<direction>up|down|left|right)\s+(?<notches>\d+)\s+in\s+(?<target>.+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex ScrollParts();
+
+    // "click on the cat" means "click the cat"; "click on" alone is a button called "on".
+    [GeneratedRegex(@"^on\s+(?=(the|a|an)\s|"")", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OnThe();
 
     // "until you see the cat" means "until the cat".
     [GeneratedRegex(@"^(?<direction>up|down|left|right)\s+until(\s+(you|i|we)\s+(can\s+)?(see|find))?(\s+(?<target>.+))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline)]
