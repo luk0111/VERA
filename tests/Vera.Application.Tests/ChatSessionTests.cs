@@ -592,6 +592,17 @@ public sealed class ChatSessionTests
     }
 
     [Fact]
+    public void A_run_the_tester_stopped_says_so_at_the_step_it_cut()
+    {
+        var session = NewSession(new FakeChatClient("ok"));
+
+        session.AddRun([new ClickStep("Next"), new ClickStep("Done")], new StepRunResult(Verdict.Inconclusive, [], "/folder", StoppedByTester: true));
+
+        session.History[^1].Text.ShouldContain("\"outcome\":\"stopped by the tester\"");
+        session.History[^1].Text.ShouldContain("\"outcome\":\"not run\"");
+    }
+
+    [Fact]
     public void The_examples_in_the_prompt_are_steps_VERA_can_run()
     {
         var examples = ChatSession.SystemPrompt[ChatSession.SystemPrompt.IndexOf("Should I test this?", StringComparison.Ordinal)..]

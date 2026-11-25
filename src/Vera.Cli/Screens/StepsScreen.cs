@@ -734,13 +734,16 @@ internal static class StepsScreen
             AnsiConsole.MarkupLine("[grey]With a local model, finding each element can take a few minutes.[/]");
         }
 
+        // Esc stops the run wherever it's pressed (#47); without it the run still goes ahead.
+        using var stop = new CancellationTokenSource();
+        var stopKey = await StartStopKeyAsync(stop);
         AnsiConsole.WriteLine();
 
         Func<string, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? what => Task.FromResult(ApproveRisky(what)) : null;
         StepRunResult result;
         try
         {
-            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), CancellationToken.None);
+            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), stop.Token);
         }
 #pragma warning disable CA1031 // A run that can't start (e.g. the app closed) is shown on screen; the screen itself must stay open.
         catch (Exception e)
@@ -749,12 +752,21 @@ internal static class StepsScreen
             Ui.ShowError(settings, e);
             return null;
         }
+        finally
+        {
+            stopKey?.Dispose();
+        }
 
         if (result.StoppedBy is { } error)
         {
             AnsiConsole.MarkupLine($"[yellow]![/] {result.Steps.Count + 1}. {Markup.Escape(steps[result.Steps.Count].ToString())}");
             AnsiConsole.MarkupLine($"    [yellow]Stopped here: VERA couldn't finish this step.[/]");
             Ui.ShowError(settings, error);
+        }
+        else if (result.StoppedByTester && result.Steps.Count < steps.Count)
+        {
+            AnsiConsole.MarkupLine($"[yellow]![/] {result.Steps.Count + 1}. {Markup.Escape(steps[result.Steps.Count].ToString())}");
+            AnsiConsole.MarkupLine($"    [yellow]Stopped by you.[/]");
         }
 
         AnsiConsole.WriteLine();
@@ -763,6 +775,7 @@ internal static class StepsScreen
         {
             Verdict.Passed => "[green bold]Passed[/]",
             Verdict.Failed => "[red bold]Failed[/]",
+            _ when result.StoppedByTester => "[yellow bold]Inconclusive (stopped by you)[/]",
             _ => "[yellow bold]Inconclusive[/]",
         };
         AnsiConsole.MarkupLine($"{verdict}: {done} of {steps.Count} steps done.");
@@ -770,6 +783,26 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine("[grey]Click back into this window to continue.[/]");
         AnsiConsole.WriteLine();
         return result;
+    }
+
+    // Watches for Esc and says so; null, with a warning, when the system won't let VERA watch the keyboard.
+    private static async Task<IDisposable?> StartStopKeyAsync(CancellationTokenSource stop)
+    {
+        try
+        {
+#if WINDOWS
+            var stopKey = await StopKey.StartAsync(stop.Cancel);
+#else
+            var stopKey = await MacStopKey.StartAsync(stop.Cancel);
+#endif
+            AnsiConsole.MarkupLine("[teal]Press Esc to stop.[/]");
+            return stopKey;
+        }
+        catch (InvalidOperationException e)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Esc won't stop this run: {Markup.Escape(e.Message)}[/]");
+            return null;
+        }
     }
 
     private static void ShowStep(StepResult step)

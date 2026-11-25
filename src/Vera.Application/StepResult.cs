@@ -28,4 +28,6 @@ public sealed record StepResult(int Number, StepCommand Step, StepOutcome Outcom
 /// <param name="Folder">Where the run's screenshots are saved.</param>
 /// <param name="StoppedBy">An error that ended the run partway, e.g. the model couldn't be reached; the verdict is then
 /// <see cref="Verdict.Inconclusive"/> and <see cref="Steps"/> holds the steps finished before it. Null when the run wasn't stopped.</param>
-public sealed record StepRunResult(Verdict Verdict, IReadOnlyList<StepResult> Steps, string Folder, Exception? StoppedBy = null);
+/// <param name="StoppedByTester">The tester stopped the run (#47); the verdict is then <see cref="Verdict.Inconclusive"/> and
+/// <see cref="Steps"/> holds the steps finished before the stop.</param>
+public sealed record StepRunResult(Verdict Verdict, IReadOnlyList<StepResult> Steps, string Folder, Exception? StoppedBy = null, bool StoppedByTester = false);

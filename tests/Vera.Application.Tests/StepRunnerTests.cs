@@ -419,6 +419,66 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stop_by_the_tester_ends_the_run_and_keeps_the_steps_done()
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+
+        // The tester stops while the model looks for the button.
+        _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == "Click the search button"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                stop.Cancel();
+                return Task.FromCanceled<AgentAction>(stop.Token);
+            });
+
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter", "click the search button", "press tab"), null, null, stop.Token);
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.StoppedByTester.ShouldBeTrue();
+        result.StoppedBy.ShouldBeNull();
+        result.Steps.Select(s => s.Step.ToString()).ShouldBe(["press enter"]);
+        await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+        await _adapter.DidNotReceive().PressKeyAsync("tab", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_stop_that_a_step_turns_into_its_own_failure_is_still_the_testers_stop()
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        _adapter.PressKeyAsync("enter", Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            stop.Cancel();
+            return Task.FromException(new InvalidOperationException("The window moved since VERA last looked at it. Read it again."));
+        });
+
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, stop.Token);
+
+        result.StoppedByTester.ShouldBeTrue();
+        result.Steps.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stop_before_the_run_starts_runs_no_step()
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        await stop.CancelAsync();
+        _adapter.StartAsync(Arg.Any<AppTarget>(), Arg.Any<CancellationToken>()).Returns(Task.FromCanceled(stop.Token));
+
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, stop.Token);
+
+        result.Verdict.ShouldBe(Verdict.Inconclusive);
+        result.StoppedByTester.ShouldBeTrue();
+        result.Steps.ShouldBeEmpty();
+        await _adapter.DidNotReceiveWithAnyArgs().PressKeyAsync(default!, Ct);
+    }
+
+    [Fact]
+    public async Task A_run_that_is_not_stopped_is_not_stopped_by_the_tester()
+    {
+        (await RunAsync("press enter")).StoppedByTester.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task A_disabled_element_is_not_clicked()
     {
         ScreenShows(Window, SearchButton with { IsEnabled = false });
