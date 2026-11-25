@@ -305,9 +305,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     throw new StepNotDoneException($"I scrolled {direction} {Times(scrolls)} and can't find {StepCommand.Quote(until.Target)}.{Because(reason)}");
                 }
 
-                await adapter.ScrollAsync(0, vertical ? sign * notches : 0, vertical ? 0 : sign * notches, ct).ConfigureAwait(false);
-                await runner.PauseAsync(ct).ConfigureAwait(false);
-                _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+                await ScrollWindowAsync(sign * notches, vertical).ConfigureAwait(false);
 
                 // Same elements in the same places, and the same picture: there is nothing more that way.
                 if (ElementFinder.Seen(_screen) == seen && _screen.ScreenshotPng.Span.SequenceEqual(before.ScreenshotPng.Span))
@@ -317,8 +315,24 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         : $"I scrolled {direction} to the end and can't find {StepCommand.Quote(until.Target)}.{Because(reason)}");
                 }
 
-                notches = ScrollDistance.Next(before, _screen, vertical, notches);
+                // Jumped past a part nobody has seen: go half of the way back, then in smaller steps.
+                if (notches > 1 && ScrollDistance.Jumped(before, _screen, vertical))
+                {
+                    var back = notches - (notches / 2);
+                    await ScrollWindowAsync(-sign * back, vertical).ConfigureAwait(false);
+                    notches -= back;
+                    continue;
+                }
+
+                notches = ScrollDistance.Next(before, _screen, vertical, sign > 0, notches);
             }
+        }
+
+        private async Task ScrollWindowAsync(int notches, bool vertical)
+        {
+            await adapter.ScrollAsync(0, vertical ? notches : 0, vertical ? 0 : notches, ct).ConfigureAwait(false);
+            await runner.PauseAsync(ct).ConfigureAwait(false);
+            _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
         }
 
         // A page that is still opening would be scrolled before its top is there. Waits until two readings show the same; no model call.

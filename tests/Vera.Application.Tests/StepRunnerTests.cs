@@ -145,6 +145,8 @@ public sealed class StepRunnerTests : IDisposable
     [InlineData(700, 10)]
     [InlineData(1500, 40)]
     [InlineData(350, 100)]
+    [InlineData(350, 120)]
+    [InlineData(480, 200)]
     [InlineData(900, 100)]
     public async Task Scroll_until_stops_when_the_element_shows(int catAt, int pixelsPerNotch)
     {
@@ -166,7 +168,8 @@ public sealed class StepRunnerTests : IDisposable
         await RunAsync("scroll down until the orange cat");
 
         page.Notches[0].ShouldBe(StepRunner.FirstNotches);
-        page.Notches.Skip(1).ShouldAllBe(n => n == 18);
+        page.Notches.Take(4).ShouldBe([3, 6, 12, 18]);
+        page.Notches.Skip(4).ShouldAllBe(n => n == 18);
     }
 
     [Fact]

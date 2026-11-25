@@ -10,27 +10,39 @@ internal static class ScrollDistance
     // The rest of the window is seen twice, so an element at the edge isn't jumped over.
     private const double ShareOfWindow = 0.6;
 
-    /// <summary>The notches that move about 60% of the window; when it can't be measured, the same again, or half of it after a jump.</summary>
-    public static int Next(ScreenState before, ScreenState after, bool vertical, int notches)
+    /// <summary>
+    /// The notches that move about 60% of the window, at most twice as many as now: one wrong measurement, e.g. a page still gliding, can't become a big jump.
+    /// The same again when nothing moved that can be measured, and half after a jump.
+    /// </summary>
+    /// <param name="forward">Scrolled down or right, so what is on the screen moves up or left.</param>
+    public static int Next(ScreenState before, ScreenState after, bool vertical, bool forward, int notches)
     {
-        var old = Places(before, vertical);
-        var now = Places(after, vertical);
-        var moved = now
-            .Where(p => old.ContainsKey(p.Key))
-            .Select(p => Math.Abs(p.Value - old[p.Key]))
-            .Where(d => d > 0)
-            .Order()
-            .ToList();
-        if (moved.Count == 0)
+        // The page itself moves the most. A header that shrinks, or anything that moves the other way, moves less or not like the page.
+        var moved = Moved(before, after, vertical).Select(d => forward ? -d : d).Where(d => d > 0).DefaultIfEmpty(0).Max();
+        if (moved == 0)
         {
-            // Other elements, but none that moved: probably jumped a whole window, perhaps past the element. A browser's toolbar stays, so it says nothing.
-            return old.Keys.ToHashSet().SetEquals(now.Keys) ? notches : Math.Max(1, notches / 2);
+            return Jumped(before, after, vertical) ? Math.Max(1, notches / 2) : notches;
         }
 
-        // What doesn't move, e.g. a toolbar, was left out; the middle one ignores the odd element that moved by itself.
-        var perNotch = (double)moved[moved.Count / 2] / notches;
         var window = before.Elements[0].Bounds;
-        return (int)Math.Clamp((vertical ? window.Height : window.Width) * ShareOfWindow / perNotch, 1, StepParser.MaxNotches);
+        var wanted = (vertical ? window.Height : window.Width) * ShareOfWindow / ((double)moved / notches);
+        return (int)Math.Clamp(wanted, 1, Math.Min(notches * 2, StepParser.MaxNotches));
+    }
+
+    /// <summary>
+    /// Whether a scroll went past everything seen before, so something in between may never have been on the screen:
+    /// there are other elements now and none that moved. A browser's toolbar stays, so it says nothing.
+    /// </summary>
+    public static bool Jumped(ScreenState before, ScreenState after, bool vertical)
+    {
+        var old = Places(before, vertical).Keys.ToHashSet();
+        return !Moved(before, after, vertical).Any(d => d != 0) && !old.SetEquals(Places(after, vertical).Keys);
+    }
+
+    private static IEnumerable<int> Moved(ScreenState before, ScreenState after, bool vertical)
+    {
+        var old = Places(before, vertical);
+        return Places(after, vertical).Where(p => old.ContainsKey(p.Key)).Select(p => p.Value - old[p.Key]);
     }
 
     // Only elements that can't be mixed up: a page may have many links called "edit".
