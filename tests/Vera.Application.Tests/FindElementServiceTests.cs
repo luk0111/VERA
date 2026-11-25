@@ -45,6 +45,27 @@ public sealed class FindElementServiceTests : IDisposable
         File.Exists(result.ImagePath).ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("Log in", true)]
+    [InlineData("Cancel", false)]
+    public async Task It_says_when_another_element_has_the_same_name(string otherName, bool expected)
+    {
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, LogIn, LogIn with { Id = 8, Name = otherName }));
+        ModelAnswers(new AgentAction(AgentActionType.Click, 7, null, ""));
+
+        var result = await NewService().FindAsync(1234, "App", "Log in button", Ct);
+
+        result.SameNameElsewhere.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("Delete file", true)]
+    [InlineData("Log in", false)]
+    public void Risky_names_are_recognised(string name, bool expected)
+    {
+        FindElementService.IsRisky(LogIn with { Name = name }).ShouldBe(expected);
+    }
+
     [Fact]
     public async Task The_app_is_attached_by_process_id()
     {

@@ -26,7 +26,8 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
 
         var (element, reason) = await ElementFinder.FindAsync(llm, screen, target, what, ct).ConfigureAwait(false);
         var image = element is null ? screen.ScreenshotPng : ElementHighlight.DrawBox(screen.ScreenshotPng, screen.Elements[0].Bounds, element.Bounds);
-        return new FindResult(element is not null, element, reason, await SaveAsync(image, ct).ConfigureAwait(false));
+        var sameNameElsewhere = element is not null && screen.Elements.Count(e => e.Id >= 1 && e.Role == element.Role && e.Name == element.Name) > 1;
+        return new FindResult(element is not null, element, reason, await SaveAsync(image, ct).ConfigureAwait(false), sameNameElsewhere);
     }
 
     /// <summary>
@@ -58,6 +59,13 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
     {
         ArgumentNullException.ThrowIfNull(element);
         return element.Role is "Edit" or "Document" or "ComboBox";
+    }
+
+    /// <summary>Whether clicking the element may change or send something, from words in its name; a steps run asks before such a click too.</summary>
+    public static bool IsRisky(UiElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        return RiskyWords.IsRisky(element.Name);
     }
 
     private async Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
