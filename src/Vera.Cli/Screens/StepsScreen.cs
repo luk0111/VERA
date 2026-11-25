@@ -136,21 +136,22 @@ internal static class StepsScreen
     private static bool Discarded(StepChain opened, StepChain chain) => chain.Unsaved && !chain.Steps.SequenceEqual(opened.Steps);
 
     /// <summary>Asks before the tester's own unsaved steps are lost. True when they are saved now, may be lost, or there are none.</summary>
-    public static bool MayLose(StepFileStore store, StepChain chain)
+    public static bool MayLose(
+        StepFileStore store, StepChain chain, string question = "Leave anyway?", string lose = "Leave without saving (they are lost)", string stay = "Stay here")
     {
         while (chain.Unsaved)
         {
             AnsiConsole.WriteLine();
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<Unsaved>()
-                    .Title($"[yellow]You have {chain.Steps.Count} unsaved steps.[/] Leave anyway?")
+                    .Title($"[yellow]You have {chain.Steps.Count} unsaved steps.[/] {question}")
                     .HighlightStyle(Ui.Highlight)
                     .AddChoices(Enum.GetValues<Unsaved>())
                     .UseConverter(u => u switch
                     {
                         Unsaved.Save => "Save them",
-                        Unsaved.Lose => "Leave without saving (they are lost)",
-                        _ => "Stay here",
+                        Unsaved.Lose => lose,
+                        _ => stay,
                     }));
             switch (choice)
             {

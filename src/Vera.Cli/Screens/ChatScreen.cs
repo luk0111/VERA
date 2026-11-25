@@ -263,6 +263,12 @@ internal static class ChatScreen
 
                     break;
                 case Proposed.Edit:
+                    // The edited steps take the place of the ones the chat holds.
+                    if (draft.Steps != chain && !StepsScreen.MayLose(store, draft.Steps, "Replace them with VERA's steps?", "Replace them (yours are lost)", "Keep mine"))
+                    {
+                        break;
+                    }
+
                     draft.Steps = await StepsScreen.ShowAsync(settings, app, find, runner, store, chain, (ran, outcome) => { session.AddRun(ran, outcome); acted = true; });
                     ShowSessionAgain(settings, app, session);
                     return acted;
