@@ -65,6 +65,10 @@ public sealed class StepParserTests
 
     [Theory]
     [InlineData("press on images", "images")]
+    [InlineData("press on \"Images\"", "Images")]
+    [InlineData("press the button \"Save\"", "the button \"Save\"")]
+    [InlineData("press the + button", "the + button")]
+    [InlineData("press on C++ tutorial", "C++ tutorial")]
     [InlineData("press on Delete", "Delete")]
     [InlineData("press on the Home", "the Home")]
     [InlineData("press on page down", "page down")]
@@ -77,6 +81,10 @@ public sealed class StepParserTests
     public void Press_on_something_on_the_screen_is_a_click(string line, string target) =>
         StepParser.Parse(line).ShouldBe(new ClickStep(target));
 
+    [Fact]
+    public void A_quote_that_is_not_closed_is_an_error() =>
+        Should.Throw<FormatException>(() => StepParser.Parse("press on \"Images"));
+
     [Theory]
     [InlineData("press a", "a")]
     [InlineData("press the enter key", "enter")]
@@ -88,6 +96,8 @@ public sealed class StepParserTests
     [InlineData("press the down arrow key", "down")]
     [InlineData("press f5", "f5")]
     [InlineData("press alt + f4", "alt + f4")]
+    [InlineData("press \"enter\"", "enter")]
+    [InlineData("press \"ctrl+s\"", "ctrl+s")]
     [InlineData("press entr", "entr")]
     public void Press_with_a_key_stays_a_key(string line, string keys) =>
         StepParser.Parse(line).ShouldBe(new PressStep(keys));

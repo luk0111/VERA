@@ -126,7 +126,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
             catch (InvalidKeyComboException e)
             {
-                var hint = step is PressStep { Keys: var keys } && !keys.Contains('+', StringComparison.Ordinal)
+                var hint = step is PressStep { Keys: var keys } && !StepParser.IsCombo(keys)
                     ? $" To press something on the screen, write click {keys}."
                     : "";
                 (outcome, message) = (StepOutcome.NotDone, e.Message + hint);

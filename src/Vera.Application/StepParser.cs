@@ -144,13 +144,14 @@ public static partial class StepParser
     // "press on delete" and "press the delete button" are clicks, "press delete" and "press the delete key" are keys. One unknown word alone ("press entr") stays keys: it may be a typo.
     private static StepCommand ReadPress(string rest)
     {
-        var keys = rest.Trim('"').Trim();
+        // Quotes around all of it: press "enter". A quote at one end only belongs to a name: press on "Images".
+        var keys = rest.StartsWith('"') && ReadQuoted(rest, 0) is var (quoted, end) && end == rest.Length ? quoted.Trim() : rest;
         if (keys.Length == 0)
         {
             throw new FormatException("Say which keys to press, e.g. press enter or press ctrl+s.");
         }
 
-        if (keys.Contains('+', StringComparison.Ordinal))
+        if (IsCombo(keys))
         {
             return new PressStep(keys);
         }
@@ -174,6 +175,16 @@ public static partial class StepParser
             ? new ClickStep(Describe(OnThing().Replace(keys, "")) ?? keys)
             : new PressStep(keys);
     }
+
+    /// <summary>Keys pressed together, e.g. <c>ctrl+s</c>: a modifier and other keys. A + in a name isn't one, e.g. <c>the + button</c>. The input layer checks the keys.</summary>
+    internal static bool IsCombo(string keys)
+    {
+        var parts = keys.Split('+', StringSplitOptions.TrimEntries);
+        return parts.Length > 1 && parts.All(p => !p.Any(char.IsWhiteSpace)) && parts.Any(p => Modifier().IsMatch(p));
+    }
+
+    [GeneratedRegex(@"^(ctrl|control|cmd|command|shift|alt|option|win)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex Modifier();
 
     /// <summary>Whether <paramref name="keys"/> is one key every system has a name for. Combos with + are left to the input layer.</summary>
     internal static bool IsKeyName(string keys) =>

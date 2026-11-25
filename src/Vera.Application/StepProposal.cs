@@ -67,7 +67,7 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
                 if (StepParser.Parse(line) is { } step)
                 {
                     // The model means a button; a tester's typo is only told when it runs.
-                    if (step is PressStep press && !press.Keys.Contains('+', StringComparison.Ordinal) && !StepParser.IsKeyName(press.Keys))
+                    if (step is PressStep press && !StepParser.IsCombo(press.Keys) && !StepParser.IsKeyName(press.Keys))
                     {
                         return new StepProposal(text, [], $"\"{line}\" presses something that isn't a key. For a button or link write click, e.g. click {press.Keys}.");
                     }
