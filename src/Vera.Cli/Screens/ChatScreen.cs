@@ -434,7 +434,7 @@ internal static class ChatScreen
 
         if (session.DroppedForRoom > 0)
         {
-            AnsiConsole.MarkupLine($"[grey]The chat got too long for the model, so it no longer sees the {session.DroppedForRoom} oldest messages (files too). Type /clear to start fresh.[/]");
+            AnsiConsole.MarkupLine($"[grey]The chat got too long for the model, so it no longer sees the {session.DroppedForRoom} oldest messages. Attach a file again with /file if it still needs it, or type /clear to start fresh.[/]");
         }
 
         SetConnection(settings, app, session, ConnectionState.Connected, "");
