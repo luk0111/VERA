@@ -386,12 +386,12 @@ public sealed class StepRunnerTests : IDisposable
         _secrets.GetAsync("pw", Arg.Any<CancellationToken>()).Returns("s3cret");
         var trail = new SecretTrail();
         var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, trail: trail);
-        await runner.RunAsync(1234, "Shop", Steps("type \"{{secret:pw}}\" into the search box"), null, null, Ct);
+        await runner.RunAsync(1234, "Shop", Steps("type \"{{secret:pw}}\" into the search box"), null, null, null, Ct);
         ScreenShows(Window, SearchBox with { Value = "s3cret" }, SearchButton, Results, Delete);
 
         // Another runner, e.g. for another model, shares the trail.
         var later = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, trail: trail);
-        var result = await later.RunAsync(1234, "Shop", Steps("expect the search box contains \"cats\""), null, null, Ct);
+        var result = await later.RunAsync(1234, "Shop", Steps("expect the search box contains \"cats\""), null, null, null, Ct);
 
         result.Steps[0].Message.ShouldBe("field \"Search\" has \"***\", which doesn't contain \"cats\".");
         await _secrets.Received(1).GetAsync("pw", Arg.Any<CancellationToken>());
@@ -403,7 +403,7 @@ public sealed class StepRunnerTests : IDisposable
         _secrets.GetAsync("gemini", Arg.Any<CancellationToken>()).Returns("AIza-key");
         var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, apiKeyNames: ["Gemini"]);
 
-        var result = await runner.RunAsync(1234, "Shop", Steps("type \"{{secret:gemini}}\" into the search box"), null, null, Ct);
+        var result = await runner.RunAsync(1234, "Shop", Steps("type \"{{secret:gemini}}\" into the search box"), null, null, null, Ct);
 
         result.Verdict.ShouldBe(Verdict.Inconclusive);
         result.Steps[0].Message.ShouldBe("\"gemini\" is VERA's model API key, not a test secret. Save the app's own secret in Settings under another name.");
@@ -479,7 +479,7 @@ public sealed class StepRunnerTests : IDisposable
                 return Task.FromCanceled<AgentAction>(stop.Token);
             });
 
-        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter", "click the search button", "press tab"), null, null, stop.Token);
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter", "click the search button", "press tab"), null, null, null, stop.Token);
 
         result.Verdict.ShouldBe(Verdict.Inconclusive);
         result.StoppedByTester.ShouldBeTrue();
@@ -499,7 +499,7 @@ public sealed class StepRunnerTests : IDisposable
             return Task.FromException(new InvalidOperationException("The window moved since VERA last looked at it. Read it again."));
         });
 
-        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, stop.Token);
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, null, stop.Token);
 
         result.StoppedByTester.ShouldBeTrue();
         result.Steps.ShouldBeEmpty();
@@ -512,7 +512,7 @@ public sealed class StepRunnerTests : IDisposable
         await stop.CancelAsync();
         _adapter.StartAsync(Arg.Any<AppTarget>(), Arg.Any<CancellationToken>()).Returns(Task.FromCanceled(stop.Token));
 
-        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, stop.Token);
+        var result = await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, null, stop.Token);
 
         result.Verdict.ShouldBe(Verdict.Inconclusive);
         result.StoppedByTester.ShouldBeTrue();
@@ -778,7 +778,7 @@ public sealed class StepRunnerTests : IDisposable
         front.BringBackAsync(window, Arg.Any<CancellationToken>()).Returns(_ => { order.Add("front"); return true; });
         var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, front);
 
-        await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, Ct);
+        await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, null, Ct);
 
         order.ShouldBe(["front", "asked"]);
     }
@@ -841,11 +841,53 @@ public sealed class StepRunnerTests : IDisposable
     [Fact]
     public async Task Each_step_is_reported_as_soon_as_it_is_finished()
     {
-        var reported = new ListProgress();
+        var reported = new ListProgress<StepResult>();
 
-        await NewRunner().RunAsync(1234, "Shop", Steps("click the search button", "press enter"), null, reported, Ct);
+        await NewRunner().RunAsync(1234, "Shop", Steps("click the search button", "press enter"), null, reported, null, Ct);
 
         reported.Items.Select(s => s.Number).ShouldBe([1, 2]);
+    }
+
+    [Fact]
+    public async Task A_running_step_tells_what_VERA_is_doing()
+    {
+        var told = new ListProgress<StepActivity>();
+
+        await NewRunner().RunAsync(1234, "Shop", Steps("click the search button", "press enter"), null, null, told, Ct);
+
+        told.Items.Select(a => (a.Number, a.Phase)).ShouldBe([
+            (1, StepPhase.Reading), (1, StepPhase.Finding), (1, StepPhase.Acting),
+            (2, StepPhase.Reading), (2, StepPhase.Acting)]);
+        told.Items[0].Step.ToString().ShouldBe("click the search button");
+    }
+
+    [Fact]
+    public async Task A_step_waiting_for_a_slow_app_tells_it_is_waiting()
+    {
+        ScreensShow(Screen("Shop", Window, SearchButton with { IsEnabled = false }), Screen("Shop", Window, SearchButton));
+        var told = new ListProgress<StepActivity>();
+
+        await NewRunner(TimeSpan.FromMilliseconds(500)).RunAsync(1234, "Shop", Steps("click the search button"), null, null, told, Ct);
+
+        told.Items.Select(a => a.Phase).ShouldBe([StepPhase.Reading, StepPhase.Finding, StepPhase.Waiting, StepPhase.Acting]);
+    }
+
+    [Fact]
+    public async Task Checking_the_title_asks_no_model_so_it_never_tells_finding()
+    {
+        var told = new ListProgress<StepActivity>();
+
+        await NewRunner().RunAsync(1234, "Shop", Steps("expect title contains \"cats\""), null, null, told, Ct);
+
+        told.Items.Select(a => a.Phase).ShouldBe([StepPhase.Reading]);
+    }
+
+    [Fact]
+    public async Task Each_step_says_how_long_it_took()
+    {
+        var result = await NewRunner(pause: TimeSpan.FromMilliseconds(50)).RunAsync(1234, "Shop", Steps("press enter"), null, null, null, Ct);
+
+        result.Steps[0].Duration.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(50));
     }
 
     [Fact]
@@ -869,16 +911,17 @@ public sealed class StepRunnerTests : IDisposable
     private static List<StepCommand> Steps(params string[] lines) => [.. lines.Select(l => StepParser.Parse(l)!)];
 
     // No pause, and no waiting unless a test asks for it: each step reads once.
-    private StepRunner NewRunner(TimeSpan? wait = null) => new(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, wait ?? TimeSpan.Zero);
+    private StepRunner NewRunner(TimeSpan? wait = null, TimeSpan? pause = null) =>
+        new(() => _adapter, _llm, _secrets, _output, pause ?? TimeSpan.Zero, wait ?? TimeSpan.Zero);
 
     private Task<StepRunResult> RunAsync(params string[] lines) => RunAsync(lines, null);
 
     private Task<StepRunResult> RunAsync(string[] lines, Func<string, Task<bool>>? approveRisky) =>
-        NewRunner().RunAsync(1234, "Shop", Steps(lines), approveRisky, null, Ct);
+        NewRunner().RunAsync(1234, "Shop", Steps(lines), approveRisky, null, null, Ct);
 
     // Waits up to 0.5 s, reading every 50 ms.
     private Task<StepRunResult> RunWaitingAsync(string line) =>
-        NewRunner(TimeSpan.FromMilliseconds(500)).RunAsync(1234, "Shop", Steps(line), null, null, Ct);
+        NewRunner(TimeSpan.FromMilliseconds(500)).RunAsync(1234, "Shop", Steps(line), null, null, null, Ct);
 
     // Each reading shows the next screen; the last one stays.
     private void ScreensShow(params ScreenState[] screens) =>
@@ -972,10 +1015,10 @@ public sealed class StepRunnerTests : IDisposable
             new(id, "Hyperlink", name, new ScreenRect(110, 100 + y, 200, 20), true, $"Hyperlink:{name}");
     }
 
-    private sealed class ListProgress : IProgress<StepResult>
+    private sealed class ListProgress<T> : IProgress<T>
     {
-        public List<StepResult> Items { get; } = [];
+        public List<T> Items { get; } = [];
 
-        public void Report(StepResult value) => Items.Add(value);
+        public void Report(T value) => Items.Add(value);
     }
 }
