@@ -59,8 +59,7 @@ while (true)
             .UseConverter(option => option switch
             {
                 MainMenuOption.StartTesting => "Start testing an app",
-                MainMenuOption.FindElement => "Find an element in an app",
-                MainMenuOption.RunSteps => "Run steps in an app",
+                MainMenuOption.FindAndRunSteps => "Find and run steps in an app",
                 MainMenuOption.Settings => "Settings",
                 MainMenuOption.Exit => "Exit",
                 _ => option.ToString(),
@@ -70,8 +69,7 @@ while (true)
     var title = choice switch
     {
         MainMenuOption.StartTesting => "Start testing an app",
-        MainMenuOption.FindElement => "Find an element in an app",
-        MainMenuOption.RunSteps => "Run steps in an app",
+        MainMenuOption.FindAndRunSteps => "Find and run steps in an app",
         _ => null,
     };
     if (title is not null && !await Ui.EnsureModelReadyAsync(settings, () => newChat(settings.SelectedModel!.ProfileName), title))
@@ -85,17 +83,11 @@ while (true)
             await StartTestScreen.ShowAsync(
                 settings, runningApps, () => newChat(settings.SelectedModel!.ProfileName), services.GetRequiredService<ChatAppContextReader>());
             break;
-        case MainMenuOption.FindElement:
-            if (ProcessPicker.Pick(settings, runningApps, "Find an element in an app") is { } app)
+        case MainMenuOption.FindAndRunSteps:
+            if (ProcessPicker.Pick(settings, runningApps, "Find and run steps in an app") is { } app)
             {
-                await FindScreen.ShowAsync(settings, app, newFind(settings.SelectedModel!.ProfileName));
-            }
-
-            break;
-        case MainMenuOption.RunSteps:
-            if (ProcessPicker.Pick(settings, runningApps, "Run steps in an app") is { } stepsApp)
-            {
-                await StepsScreen.ShowAsync(settings, stepsApp, newSteps(settings.SelectedModel!.ProfileName), stepFiles);
+                var profile = settings.SelectedModel!.ProfileName;
+                await StepsScreen.ShowAsync(settings, app, newFind(profile), newSteps(profile), stepFiles);
             }
 
             break;
@@ -111,8 +103,7 @@ while (true)
 internal enum MainMenuOption
 {
     StartTesting,
-    FindElement,
-    RunSteps,
+    FindAndRunSteps,
     Settings,
     Exit,
 }
