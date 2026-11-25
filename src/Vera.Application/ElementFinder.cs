@@ -27,6 +27,17 @@ internal static partial class ElementFinder
         var task = new TestTask($"Click {element}", $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked", target);
         var action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
 
+        // A field that already has the focus (e.g. Wikipedia's search field) looks clicked, so the model may answer "done" instead of pointing at it.
+        if (action.Type is not (AgentActionType.Click or AgentActionType.Type or AgentActionType.Fail))
+        {
+            task = task with
+            {
+                Description = $"Click {element}, even if it is already selected or focused",
+                ExpectedResult = $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked one more time",
+            };
+            action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
+        }
+
         var found = action.Type is AgentActionType.Click or AgentActionType.Type
             ? screen.Elements.FirstOrDefault(e => e.Id > 0 && e.Id == action.TargetId)
             : null;

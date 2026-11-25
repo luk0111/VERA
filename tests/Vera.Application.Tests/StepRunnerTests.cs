@@ -140,6 +140,29 @@ public sealed class StepRunnerTests : IDisposable
         (await RunAsync(line)).Verdict.ShouldBe(Verdict.Inconclusive);
     }
 
+    [Theory]
+    [InlineData(AgentActionType.Done)]
+    [InlineData(AgentActionType.Wait)]
+    public async Task A_field_that_already_has_the_focus_is_found_when_the_model_first_says_done(AgentActionType first)
+    {
+        ModelAnswers("the search box", new AgentAction(first, null, null, "It is already focused"));
+        ModelPoints("the search box, even if it is already selected or focused", 1);
+
+        var result = await RunAsync("type \"cats\" into the search box");
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).TypeAsync(1, "cats", Arg.Any<CancellationToken>());
+        await ModelWasAsked(2);
+    }
+
+    [Fact]
+    public async Task An_element_that_is_not_there_is_asked_about_once()
+    {
+        await RunAsync("click the moon");
+
+        await ModelWasAsked(1);
+    }
+
     [Fact]
     public async Task A_drag_step_drags_one_found_element_onto_the_other()
     {
@@ -520,9 +543,11 @@ public sealed class StepRunnerTests : IDisposable
     private Task<AgentAction> ModelWasAsked(int times) =>
         _llm.Received(times).DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
 
-    private void ModelPoints(string description, int id) =>
+    private void ModelPoints(string description, int id) => ModelAnswers(description, new AgentAction(AgentActionType.Click, id, null, "Found it"));
+
+    private void ModelAnswers(string description, AgentAction action) =>
         _llm.DecideNextActionAsync(Arg.Is<TestTask>(t => t.Description == $"Click {description}"), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentAction(AgentActionType.Click, id, null, "Found it"));
+            .Returns(action);
 
     private void ScreenShows(params UiElement[] elements)
     {
