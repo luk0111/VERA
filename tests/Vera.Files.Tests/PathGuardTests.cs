@@ -200,6 +200,21 @@ public sealed class PathGuardTests : IDisposable
     }
 
     [Fact]
+    public void A_loop_of_links_is_not_allowed()
+    {
+        var first = Path.Combine(_root, "a");
+        var second = Path.Combine(_root, "b");
+        Link(() =>
+        {
+            Directory.CreateSymbolicLink(first, second);
+            Directory.CreateSymbolicLink(second, first);
+        });
+        Create("notes.txt");
+
+        Should.Throw<FileAccessException>(() => PathGuard.Resolve(Path.Combine(first, "notes.txt")));
+    }
+
+    [Fact]
     public void A_link_to_a_normal_file_is_allowed()
     {
         var notes = Create("notes.txt");

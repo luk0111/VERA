@@ -49,7 +49,7 @@ internal static class PathGuard
         return fullPath;
     }
 
-    // The path with every link and junction followed, one folder at a time.
+    // The path with every link and junction followed, one part at a time.
     private static string WhereItLeads(string fullPath, int links)
     {
         // A loop of links would never end.
@@ -62,26 +62,22 @@ internal static class PathGuard
         var current = root;
         foreach (var part in fullPath[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
         {
-            FileSystemInfo? entry;
+            // The exact name, not a search: on macOS and Linux a name may hold * or ?, which a search would treat as wildcards.
+            // Short names (SSH~1) need no lookup: Path.GetFullPath already writes them out in full.
+            var path = Path.Combine(current, part);
+            FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            string? target;
             try
             {
-                // Looking the name up in its folder gives its real name and whether it is a link.
-                entry = new DirectoryInfo(current).EnumerateFileSystemInfos(part).FirstOrDefault();
+                target = entry.LinkTarget;
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // Where a folder can't be listed, VERA can't tell where the path leads.
+                // A link VERA can't read could lead anywhere.
                 throw new FileAccessException(FileAccessError.NotAllowed, NotReadable);
             }
 
-            if (entry is null)
-            {
-                throw new FileAccessException(FileAccessError.NotFound, $"File not found: {fullPath}");
-            }
-
-            current = entry.LinkTarget is { } target
-                ? WhereItLeads(Path.GetFullPath(target, Path.GetDirectoryName(entry.FullName) ?? root), links + 1)
-                : entry.FullName;
+            current = target is null ? entry.FullName : WhereItLeads(Path.GetFullPath(target, current), links + 1);
         }
 
         return current;
