@@ -36,6 +36,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     /// <param name="approveRisky">Asked before a click or drop on an element with a risky name, or a key that deletes (<see cref="RiskyWords"/>); gets what VERA is about to do, e.g. <c>click button "Delete"</c>. False stops the run. Null acts without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
+    /// <param name="activity">Told what VERA is doing in the running step, each time that changes.</param>
     /// <param name="window">The picked window (<see cref="RunningAppInfo.Window"/>); 0 finds it by <paramref name="windowTitle"/>.</param>
     /// <param name="ct">The tester's stop: cancelling it ends the run at once with <see cref="StepRunResult.StoppedByTester"/>, not an exception.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
@@ -50,6 +51,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         IReadOnlyList<StepCommand> steps,
         Func<string, Task<bool>>? approveRisky,
         IProgress<StepResult>? progress,
+        IProgress<StepActivity>? activity,
         CancellationToken ct,
         nint window = 0)
     {
@@ -84,7 +86,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 try
                 {
                     ct.ThrowIfCancellationRequested();
-                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, ct);
+                    var run = new Run(this, adapter, target, i + 1, steps[i], folder, approveRisky, asksIn, opener, activity, ct);
                     result = await run.ExecuteAsync().ConfigureAwait(false);
 
                     // A step may turn what the stop interrupted into its own failure; it's still the tester's stop.
@@ -142,7 +144,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, FrontWindow? asksIn, Run? opener, IProgress<StepActivity>? activity, CancellationToken ct)
     {
         private StepCommand Step => step;
 
@@ -157,6 +159,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             try
             {
                 _clock.Start();
+                Tell(StepPhase.Reading);
                 _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
                 (outcome, message) = await DoStepAsync().ConfigureAwait(false);
             }
@@ -182,8 +185,10 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             }
 
             var screenshot = await SaveAsync().ConfigureAwait(false);
-            return new StepResult(number, step, outcome, message, screenshot);
+            return new StepResult(number, step, outcome, message, screenshot, _clock.Elapsed);
         }
+
+        private void Tell(StepPhase phase) => activity?.Report(new StepActivity(number, step, phase));
 
         private async Task<(StepOutcome, string)> DoStepAsync()
         {
@@ -197,6 +202,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         button = await AfterAskingAsync(button).ConfigureAwait(false);
                     }
 
+                    Tell(StepPhase.Acting);
                     await adapter.ClickAsync(button.Id, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"clicked {ElementFinder.Describe(button)} (element {button.Id})");
@@ -210,6 +216,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     }
 
                     var text = await SecretPlaceholder.ResolveAsync(type.Text, runner.Secrets, ct).ConfigureAwait(false);
+                    Tell(StepPhase.Acting);
                     await adapter.TypeAsync(field.Id, text, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
@@ -220,6 +227,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         await AskAsync($"press {press.Keys}", $"pressing {press.Keys}").ConfigureAwait(false);
                     }
 
+                    Tell(StepPhase.Acting);
                     await adapter.PressKeyAsync(press.Keys, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"pressed {press.Keys}");
@@ -234,6 +242,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         ScrollDirection.Left => (0, -scroll.Notches),
                         _ => (0, scroll.Notches),
                     };
+                    Tell(StepPhase.Acting);
                     await adapter.ScrollAsync(area.Id, down, right, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done,
@@ -262,6 +271,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                         drop = StillThere(drop);
                     }
 
+                    Tell(StepPhase.Acting);
                     await adapter.DragAsync(dragged.Id, drop.Id, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done,
@@ -269,6 +279,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
                 case HoverStep hover:
                     var hovered = await FoundAsync(hover.Target).ConfigureAwait(false);
+                    Tell(StepPhase.Acting);
                     await adapter.HoverAsync(hovered.Id, ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"hovered over {ElementFinder.Describe(hovered)} (element {hovered.Id})");
 
@@ -337,6 +348,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 throw new StepNotDoneException($"Stopped: {doing} wasn't approved.");
             }
 
+            Tell(StepPhase.Reading);
             _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
             await runner.PauseAsync(ct).ConfigureAwait(false);
             _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
@@ -395,6 +407,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (seen != asked)
                 {
                     asked = seen;
+                    Tell(StepPhase.Finding);
                     (_element, _) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, ElementFinder.Care.MustBeGone).ConfigureAwait(false);
                     if (_element is null)
                     {
@@ -430,6 +443,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (seen != asked)
                 {
                     asked = seen;
+                    Tell(StepPhase.Finding);
                     (_element, reason) = await ElementFinder.FindAsync(runner.Llm, before, target, until.Target, ct, care: ElementFinder.Care.MustMatch).ConfigureAwait(false);
                     if (_element is not null)
                     {
@@ -468,6 +482,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
         private async Task ScrollWindowAsync(int notches, bool vertical)
         {
+            Tell(StepPhase.Acting);
             await adapter.ScrollAsync(0, vertical ? notches : 0, vertical ? 0 : notches, ct).ConfigureAwait(false);
             await runner.PauseAsync(ct).ConfigureAwait(false);
             _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
@@ -506,6 +521,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (element is null && _screen!.Elements.Count > 1 && seen != asked)
                 {
                     asked = seen;
+                    Tell(StepPhase.Finding);
                     (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, care).ConfigureAwait(false);
                 }
 
@@ -536,6 +552,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 return false;
             }
 
+            Tell(StepPhase.Waiting);
             await Task.Delay(runner.ReadEvery, ct).ConfigureAwait(false);
             _screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
             return true;
