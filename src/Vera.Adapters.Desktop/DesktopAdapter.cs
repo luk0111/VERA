@@ -33,8 +33,8 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     private ScreenRect? _windowBounds;
 
     /// <summary>
-    /// Attaches to <see cref="AppTarget.ProcessId"/>'s window titled <see cref="AppTarget.Name"/>, the window the process picker showed;
-    /// to the process's main window when none has that title.
+    /// Attaches to the window the process picker showed: <see cref="AppTarget.Window"/> while it is still open, otherwise
+    /// <see cref="AppTarget.ProcessId"/>'s window titled <see cref="AppTarget.Name"/>, otherwise the process's main window.
     /// </summary>
     /// <exception cref="NotSupportedException">The target has no process id.</exception>
     /// <exception cref="InvalidOperationException">The process is gone or has no window.</exception>
@@ -50,8 +50,10 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         {
             using var process = Process.GetProcessById(processId);
 
-            // shortcut: matched by title, so after the picked window's title changed (another tab) it falls back to the main window. Upgrade when AppTarget carries a window handle (Core v2).
-            _window = ProcessWindows.Pick(ProcessWindows.Of(processId), target.Name, process.MainWindowHandle);
+            // The handle stays right when the title changes, e.g. another browser tab; the title is only for a target without one.
+            _window = ProcessWindows.Belongs(target.Window, processId)
+                ? target.Window
+                : ProcessWindows.Pick(ProcessWindows.Of(processId), target.Name, process.MainWindowHandle);
         }
         catch (ArgumentException e)
         {

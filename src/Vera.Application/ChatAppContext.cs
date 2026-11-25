@@ -11,13 +11,15 @@ namespace Vera.Application;
 /// The title the system's app list showed when the window was read. It is compared with the list later to notice a change,
 /// e.g. another browser tab. It can differ from <see cref="WindowTitle"/>, which the adapter reads another way.
 /// </param>
+/// <param name="Window">The picked window's handle (<see cref="RunningAppInfo.Window"/>); 0 when the system has none.</param>
 public sealed record ChatAppContext(
     int ProcessId,
     string Name,
     string WindowTitle,
     IReadOnlyList<UiElement> Elements,
     string? Problem = null,
-    string? ListedTitle = null)
+    string? ListedTitle = null,
+    nint Window = 0)
 {
     /// <summary>The elements the model can see, without the window itself.</summary>
     public int ElementCount => Elements.Count(e => e.Id > 0);

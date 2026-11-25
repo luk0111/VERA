@@ -28,3 +28,5 @@ IsWindowVisible
 GetWindowText
 GetWindowTextLength
 GetAncestor
+IsWindow
+DwmGetWindowAttribute

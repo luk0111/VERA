@@ -143,6 +143,28 @@ public sealed class DesktopAdapterIntegrationTests
         }
     }
 
+    // The picker's row carries the window, so a title that no longer matches (another browser tab) still finds it.
+    [Fact]
+    public async Task The_listed_window_is_used_whatever_its_title()
+    {
+        using var charmap = await StartCharacterMapAsync();
+        try
+        {
+            var row = new WindowsRunningApps().List().Where(a => a.ProcessId == charmap.Id).ShouldHaveSingleItem();
+            row.Window.ShouldBe(charmap.MainWindowHandle);
+
+            await using var adapter = new DesktopAdapter(RealScreen());
+            await adapter.StartAsync(new AppTarget("A title it no longer has", AppPlatform.Desktop, "", ProcessId: charmap.Id, Window: row.Window), Ct);
+            var state = await adapter.GetScreenStateAsync(Ct);
+
+            state.WindowTitle.ShouldBe("Character Map");
+        }
+        finally
+        {
+            charmap.Kill();
+        }
+    }
+
     [Fact]
     public async Task A_screen_that_cannot_be_seen_gives_its_reason()
     {

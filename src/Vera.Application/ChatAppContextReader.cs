@@ -13,16 +13,17 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
     /// Attaches to the process and reads its window. Never fails because of the app:
     /// when the window is gone or minimized, the context has no elements and says why in <see cref="ChatAppContext.Problem"/>.
     /// </summary>
-    public Task<ChatAppContext> ReadAsync(int processId, string name, string windowTitle, CancellationToken ct) =>
-        FocusReturn.AroundAsync(front, () => ReadWindowAsync(processId, name, windowTitle, ct));
+    /// <param name="window">The picked window (<see cref="RunningAppInfo.Window"/>); 0 finds it by <paramref name="windowTitle"/>.</param>
+    public Task<ChatAppContext> ReadAsync(int processId, string name, string windowTitle, CancellationToken ct, nint window = 0) =>
+        FocusReturn.AroundAsync(front, () => ReadWindowAsync(processId, name, windowTitle, window, ct));
 
-    private async Task<ChatAppContext> ReadWindowAsync(int processId, string name, string windowTitle, CancellationToken ct)
+    private async Task<ChatAppContext> ReadWindowAsync(int processId, string name, string windowTitle, nint window, CancellationToken ct)
     {
         // Taken before the read, so a change during the read is noticed on the next check.
-        var listedTitle = ListedTitle(processId);
+        var listedTitle = ListedTitle(processId, window);
 
-        // The title tells the adapter which window it is when the app has several, like Find and the steps runner do (#44).
-        var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
+        // The window, or its title, tells the adapter which one it is when the app has several, like Find and the steps runner do (#44).
+        var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId, Window: window);
         try
         {
             ScreenState screen;
@@ -35,11 +36,11 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
 
             // The title read now is fresher than the one from the picker, e.g. after a file was opened.
             var title = string.IsNullOrWhiteSpace(screen.WindowTitle) ? windowTitle : screen.WindowTitle;
-            return new ChatAppContext(processId, name, title, screen.Elements, ListedTitle: listedTitle);
+            return new ChatAppContext(processId, name, title, screen.Elements, ListedTitle: listedTitle, Window: window);
         }
         catch (InvalidOperationException e)
         {
-            return new ChatAppContext(processId, name, windowTitle, [], e.Message, listedTitle);
+            return new ChatAppContext(processId, name, windowTitle, [], e.Message, listedTitle, window);
         }
     }
 
@@ -51,10 +52,13 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
     public bool TitleChanged(ChatAppContext last)
     {
         ArgumentNullException.ThrowIfNull(last);
-        var now = ListedTitle(last.ProcessId);
+        var now = ListedTitle(last.ProcessId, last.Window);
         return now is not null && !string.Equals(now, last.ListedTitle, StringComparison.Ordinal);
     }
 
-    private string? ListedTitle(int processId) =>
-        runningApps.List().FirstOrDefault(a => a.ProcessId == processId) is { WindowTitle.Length: > 0 } app ? app.WindowTitle : null;
+    // The picked window's row when it has a handle: another window of the same app (a second browser window) has its own title.
+    private string? ListedTitle(int processId, nint window) =>
+        runningApps.List().FirstOrDefault(a => a.ProcessId == processId && (window == 0 || a.Window == window)) is { WindowTitle.Length: > 0 } app
+            ? app.WindowTitle
+            : null;
 }

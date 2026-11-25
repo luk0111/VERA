@@ -15,9 +15,10 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
 {
     /// <param name="what">What the tester typed, e.g. <c>Log in button</c>.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
-    public async Task<FindResult> FindAsync(int processId, string windowTitle, string what, CancellationToken ct)
+    /// <param name="window">The picked window (<see cref="RunningAppInfo.Window"/>); 0 finds it by <paramref name="windowTitle"/>.</param>
+    public async Task<FindResult> FindAsync(int processId, string windowTitle, string what, CancellationToken ct, nint window = 0)
     {
-        var target = Target(processId, windowTitle);
+        var target = Target(processId, windowTitle, window);
 
         // Back to VERA right after the reading: asking the model can take a while, and the tester watches VERA meanwhile.
         var screen = await FocusReturn.AroundAsync(front, async () =>
@@ -42,8 +43,9 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
     /// </summary>
     /// <returns>The element as it was clicked, with its id and position in the new reading.</returns>
     /// <exception cref="InvalidOperationException">The app is closed, the element is no longer on the screen, or it can't be clicked (the message says why).</exception>
-    public Task<UiElement> ClickAsync(int processId, string windowTitle, UiElement found, CancellationToken ct) =>
-        ActOnAsync(processId, windowTitle, found, (adapter, id) => adapter.ClickAsync(id, ct), ct);
+    /// <inheritdoc cref="FindAsync" path="/param[@name='window']"/>
+    public Task<UiElement> ClickAsync(int processId, string windowTitle, UiElement found, CancellationToken ct, nint window = 0) =>
+        ActOnAsync(Target(processId, windowTitle, window), found, (adapter, id) => adapter.ClickAsync(id, ct), ct);
 
     /// <summary>
     /// Replaces the text of a field that <see cref="FindAsync"/> returned, finding it again as <see cref="ClickAsync"/> does.
@@ -51,10 +53,11 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
     /// </summary>
     /// <inheritdoc cref="ClickAsync" path="/returns"/>
     /// <inheritdoc cref="ClickAsync" path="/exception"/>
-    public Task<UiElement> TypeAsync(int processId, string windowTitle, UiElement found, string text, CancellationToken ct)
+    /// <inheritdoc cref="FindAsync" path="/param[@name='window']"/>
+    public Task<UiElement> TypeAsync(int processId, string windowTitle, UiElement found, string text, CancellationToken ct, nint window = 0)
     {
         ArgumentNullException.ThrowIfNull(text);
-        return ActOnAsync(processId, windowTitle, found, (adapter, id) => adapter.TypeAsync(id, text, ct), ct);
+        return ActOnAsync(Target(processId, windowTitle, window), found, (adapter, id) => adapter.TypeAsync(id, text, ct), ct);
     }
 
     /// <summary>
@@ -74,18 +77,18 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         return RiskyWords.IsRisky(element.Name);
     }
 
-    private Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
+    private Task<UiElement> ActOnAsync(AppTarget target, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(found);
-        return FocusReturn.AroundAsync(front, () => ActOnSameAsync(processId, windowTitle, found, act, ct));
+        return FocusReturn.AroundAsync(front, () => ActOnSameAsync(target, found, act, ct));
     }
 
-    private async Task<UiElement> ActOnSameAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
+    private async Task<UiElement> ActOnSameAsync(AppTarget target, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
     {
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
         {
-            await adapter.StartAsync(Target(processId, windowTitle), ct).ConfigureAwait(false);
+            await adapter.StartAsync(target, ct).ConfigureAwait(false);
             var screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
             var same = ElementFinder.Same(screen.Elements, found)
                 ?? throw new InvalidOperationException($"\"{found.Name}\" is no longer on the screen.");
@@ -94,8 +97,8 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         }
     }
 
-    private static AppTarget Target(int processId, string windowTitle) =>
-        new(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
+    private static AppTarget Target(int processId, string windowTitle, nint window) =>
+        new(windowTitle, AppPlatform.Desktop, "", ProcessId: processId, Window: window);
 
     private async Task<string> SaveAsync(ReadOnlyMemory<byte> png, CancellationToken ct)
     {

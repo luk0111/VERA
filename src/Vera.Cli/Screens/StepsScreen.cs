@@ -743,7 +743,7 @@ internal static class StepsScreen
         StepRunResult result;
         try
         {
-            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), stop.Token);
+            result = await runner.RunAsync(app.Id, app.WindowTitle, steps, approveRisky, new LineProgress(ShowStep), stop.Token, app.Window);
         }
 #pragma warning disable CA1031 // A run that can't start (e.g. the app closed) is shown on screen; the screen itself must stay open.
         catch (Exception e)

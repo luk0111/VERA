@@ -11,9 +11,11 @@ public enum AppPlatform
 /// <param name="Location">The exe path (desktop) or the URL (web).</param>
 /// <param name="Arguments">Command-line arguments for a desktop app, e.g. <c>--bug wrong-password</c>.</param>
 /// <param name="ProcessId">Attach to this running process instead of starting a new one.</param>
+/// <param name="Window">Attach to this window of the process (<see cref="RunningAppInfo.Window"/>); 0 lets the adapter choose by <see cref="Name"/>.</param>
 public sealed record AppTarget(
     string Name,
     AppPlatform Platform,
     string Location,
     string? Arguments = null,
-    int? ProcessId = null);
+    int? ProcessId = null,
+    nint Window = 0);

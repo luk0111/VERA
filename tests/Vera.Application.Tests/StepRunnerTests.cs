@@ -84,6 +84,14 @@ public sealed class StepRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_picked_window_is_passed_to_the_adapter()
+    {
+        await NewRunner().RunAsync(1234, "Shop", Steps("press enter"), null, null, Ct, window: 77);
+
+        await _adapter.Received(1).StartAsync(Arg.Is<AppTarget>(t => t.Window == 77 && t.Name == "Shop"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task The_window_is_read_before_each_step()
     {
         await RunAsync("type \"cats\" into the search box", "click the search button", "press enter");

@@ -36,6 +36,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     /// <param name="approveRisky">Asked before a click or drop on an element with a risky name, or a key that deletes (<see cref="RiskyWords"/>); gets what VERA is about to do, e.g. <c>click button "Delete"</c>. False stops the run. Null acts without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
+    /// <param name="window">The picked window (<see cref="RunningAppInfo.Window"/>); 0 finds it by <paramref name="windowTitle"/>.</param>
     /// <param name="ct">The tester's stop: cancelling it ends the run at once with <see cref="StepRunResult.StoppedByTester"/>, not an exception.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     /// <remarks>
@@ -49,11 +50,12 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         IReadOnlyList<StepCommand> steps,
         Func<string, Task<bool>>? approveRisky,
         IProgress<StepResult>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        nint window = 0)
     {
         ArgumentNullException.ThrowIfNull(steps);
         var folder = Path.GetFullPath(Path.Combine(outputDirectory, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)));
-        var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
+        var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId, Window: window);
         var results = new List<StepResult>();
         Exception? stoppedBy = null;
         var stoppedByTester = false;
