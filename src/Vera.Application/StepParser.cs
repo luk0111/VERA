@@ -141,7 +141,7 @@ public static partial class StepParser
     }
 
     // Keys as written, e.g. "ctrl+s"; the input layer checks them when the step runs. People also press things on the screen:
-    // "press on images" and "press the Save button" are clicks. One unknown word alone ("press entr") stays keys: it may be a typo.
+    // "press on delete" and "press the delete button" are clicks, "press delete" and "press the delete key" are keys. One unknown word alone ("press entr") stays keys: it may be a typo.
     private static StepCommand ReadPress(string rest)
     {
         var keys = rest.Trim('"').Trim();
@@ -157,19 +157,20 @@ public static partial class StepParser
 
         var said = PressedThing().Match(keys);
         var name = KeyWord().Replace(said.Groups["what"].Value, "").Trim();
-        if (SpokenKeys.TryGetValue(name, out var key))
+        // "the s key": the word key says it's one. Otherwise "press a button" would be the key a.
+        var saidKey = name.Length < said.Groups["what"].Value.Length;
+        var on = said.Groups["on"].Success;
+        if ((saidKey || !on) && SpokenKeys.TryGetValue(name, out var key))
         {
             return new PressStep(key);
         }
 
-        // "the s key": the word key says it's one. Otherwise "press a button" would be the key a.
-        var saidKey = name.Length < said.Groups["what"].Value.Length;
-        if (IsKeyName(name) && (saidKey || name == keys || name.Length > 1))
+        if (IsKeyName(name) && (saidKey || (!on && (name == keys || name.Length > 1))))
         {
             return new PressStep(name);
         }
 
-        return said.Groups["on"].Success || keys.Any(char.IsWhiteSpace)
+        return on || keys.Any(char.IsWhiteSpace)
             ? new ClickStep(Describe(OnThing().Replace(keys, "")) ?? keys)
             : new PressStep(keys);
     }

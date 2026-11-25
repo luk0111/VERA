@@ -275,7 +275,7 @@ public sealed class StepRunnerTests : IDisposable
     [Fact]
     public async Task A_drop_onto_a_risky_element_is_asked_first_like_a_click()
     {
-        UiElement? asked = null;
+        string? asked = null;
 
         var result = await RunAsync(["drag the results to the delete button"], e =>
         {
@@ -283,7 +283,7 @@ public sealed class StepRunnerTests : IDisposable
             return Task.FromResult(false);
         });
 
-        asked.ShouldBe(Delete);
+        asked.ShouldBe("drop onto button \"Delete account\"");
         result.Steps[0].Message.ShouldBe("Stopped: dropping onto button \"Delete account\" wasn't approved.");
         await _adapter.DidNotReceiveWithAnyArgs().DragAsync(default, default, Ct);
     }
@@ -515,14 +515,31 @@ public sealed class StepRunnerTests : IDisposable
     [Fact]
     public async Task A_risky_click_is_asked_first_and_a_no_stops_the_run()
     {
-        UiElement? asked = null;
+        string? asked = null;
 
         var result = await RunAsync(["click the delete button"], e => { asked = e; return Task.FromResult(false); });
 
-        asked.ShouldBe(Delete);
+        asked.ShouldBe("click button \"Delete account\"");
         result.Verdict.ShouldBe(Verdict.Inconclusive);
         result.Steps[0].Message.ShouldBe("Stopped: clicking button \"Delete account\" wasn't approved.");
         await _adapter.DidNotReceiveWithAnyArgs().ClickAsync(default, Ct);
+    }
+
+    [Theory]
+    [InlineData("press delete", true)]
+    [InlineData("press the delete key", true)]
+    [InlineData("press cmd+backspace", true)]
+    [InlineData("press backspace", false)]
+    [InlineData("press enter", false)]
+    public async Task A_key_that_deletes_is_asked_first(string line, bool asks)
+    {
+        var asked = new List<string>();
+
+        var result = await RunAsync([line], what => { asked.Add(what); return Task.FromResult(false); });
+
+        asked.Count.ShouldBe(asks ? 1 : 0);
+        result.Verdict.ShouldBe(asks ? Verdict.Inconclusive : Verdict.Passed);
+        await _adapter.Received(asks ? 0 : 1).PressKeyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -615,7 +632,7 @@ public sealed class StepRunnerTests : IDisposable
 
     private Task<StepRunResult> RunAsync(params string[] lines) => RunAsync(lines, null);
 
-    private Task<StepRunResult> RunAsync(string[] lines, Func<UiElement, Task<bool>>? approveRisky) =>
+    private Task<StepRunResult> RunAsync(string[] lines, Func<string, Task<bool>>? approveRisky) =>
         NewRunner().RunAsync(1234, "Shop", Steps(lines), approveRisky, null, Ct);
 
     // Waits up to 0.5 s, reading every 50 ms.

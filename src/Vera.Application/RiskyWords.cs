@@ -23,6 +23,16 @@ internal static partial class RiskyWords
         return NotALetter().Split(name).Any(Words.Contains);
     }
 
+    /// <summary>Keys that remove something in most apps: Delete, or Delete or Backspace with other keys. Backspace alone only erases a letter.</summary>
+    public static bool IsRiskyKey(string keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        return DeleteKeys().IsMatch(keys);
+    }
+
+    [GeneratedRegex(@"(^|\+)\s*delete\s*$|\+\s*backspace\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DeleteKeys();
+
     [GeneratedRegex(@"[^\p{L}]+", RegexOptions.CultureInvariant)]
     private static partial Regex NotALetter();
 }

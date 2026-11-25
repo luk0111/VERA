@@ -33,7 +33,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
     private readonly TimeSpan _wait = wait ?? DefaultWait;
 
-    /// <param name="approveRisky">Asked before clicking an element with a risky name (<see cref="RiskyWords"/>); false stops the run. Null clicks without asking.</param>
+    /// <param name="approveRisky">Asked before a click or drop on an element with a risky name, or a key that deletes (<see cref="RiskyWords"/>); gets what VERA is about to do, e.g. <c>click button "Delete"</c>. False stops the run. Null acts without asking.</param>
     /// <param name="progress">Told about each step as soon as it's finished.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     /// <remarks>
@@ -44,7 +44,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
         int processId,
         string windowTitle,
         IReadOnlyList<StepCommand> steps,
-        Func<UiElement, Task<bool>>? approveRisky,
+        Func<string, Task<bool>>? approveRisky,
         IProgress<StepResult>? progress,
         CancellationToken ct)
     {
@@ -100,7 +100,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
     // One step: read, find with the model, act or check, save the screenshot.
     private sealed class Run(
         StepRunner runner, IAppAdapter adapter, AppTarget target, int number, StepCommand step, string folder,
-        Func<UiElement, Task<bool>>? approveRisky, CancellationToken ct)
+        Func<string, Task<bool>>? approveRisky, CancellationToken ct)
     {
         private readonly Stopwatch _clock = new();
         private ScreenState? _screen;
@@ -147,7 +147,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
             {
                 case ClickStep click:
                     var button = await UsableAsync(click.Target).ConfigureAwait(false);
-                    if (approveRisky is not null && RiskyWords.IsRisky(button.Name) && !await approveRisky(button).ConfigureAwait(false))
+                    if (approveRisky is not null && RiskyWords.IsRisky(button.Name) && !await approveRisky($"click {ElementFinder.Describe(button)}").ConfigureAwait(false))
                     {
                         throw new StepNotDoneException($"Stopped: clicking {ElementFinder.Describe(button)} wasn't approved.");
                     }
@@ -170,6 +170,11 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"typed into {ElementFinder.Describe(field)} (element {field.Id})");
 
                 case PressStep press:
+                    if (approveRisky is not null && RiskyWords.IsRiskyKey(press.Keys) && !await approveRisky($"press {press.Keys}").ConfigureAwait(false))
+                    {
+                        throw new StepNotDoneException($"Stopped: pressing {press.Keys} wasn't approved.");
+                    }
+
                     await adapter.PressKeyAsync(press.Keys, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done, $"pressed {press.Keys}");
@@ -205,7 +210,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     }
 
                     // The drop target decides what happens, e.g. a "Trash" or "Delete" area.
-                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name) && !await approveRisky(drop).ConfigureAwait(false))
+                    if (approveRisky is not null && RiskyWords.IsRisky(drop.Name) && !await approveRisky($"drop onto {ElementFinder.Describe(drop)}").ConfigureAwait(false))
                     {
                         throw new StepNotDoneException($"Stopped: dropping onto {ElementFinder.Describe(drop)} wasn't approved.");
                     }

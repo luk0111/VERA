@@ -724,7 +724,7 @@ internal static class StepsScreen
 
         AnsiConsole.WriteLine();
 
-        Func<UiElement, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? element => Task.FromResult(ApproveRisky(element)) : null;
+        Func<string, Task<bool>>? approveRisky = settings.AskBeforeRiskyActions ? what => Task.FromResult(ApproveRisky(what)) : null;
         StepRunResult result;
         try
         {
@@ -772,10 +772,10 @@ internal static class StepsScreen
         AnsiConsole.MarkupLine($"    [{(step.Outcome == StepOutcome.Done ? "grey" : color)}]{Markup.Escape(step.Message)}[/]");
     }
 
-    // Asked before clicking, or dropping onto, an element with a risky name. The app is in front, so the tester has to come back to this window first.
-    private static bool ApproveRisky(UiElement element)
+    // Asked before a risky click, drop or key. The app is in front, so the tester has to come back to this window first.
+    private static bool ApproveRisky(string what)
     {
-        AnsiConsole.MarkupLine($"[yellow]The next click or drop is on \"{Markup.Escape(element.Name)}\", which may change or send something.[/]");
+        AnsiConsole.MarkupLine($"[yellow]VERA is about to {Markup.Escape(what)}, which may change or send something.[/]");
         return AnsiConsole.Confirm("[yellow]Go ahead?[/] [grey](click back into this window to answer)[/]", defaultValue: false);
     }
 
