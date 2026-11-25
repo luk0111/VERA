@@ -162,7 +162,8 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"pressed {press.Keys}");
 
                 case ScrollStep scroll:
-                    var area = await FoundAsync(scroll.Target).ConfigureAwait(false);
+                    var wholeWindow = ElementFinder.MeansWindow(scroll.Target) && _screen!.Elements.Count > 0;
+                    var area = wholeWindow ? _screen!.Elements[0] : await FoundAsync(scroll.Target).ConfigureAwait(false);
                     var (down, right) = scroll.Direction switch
                     {
                         ScrollDirection.Up => (-scroll.Notches, 0),
@@ -173,7 +174,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     await adapter.ScrollAsync(area.Id, down, right, ct).ConfigureAwait(false);
                     await runner.PauseAsync(ct).ConfigureAwait(false);
                     return (StepOutcome.Done,
-                        $"scrolled {scroll.Direction.ToString().ToLowerInvariant()} {scroll.Notches} in {ElementFinder.Describe(area)} (element {area.Id})");
+                        $"scrolled {scroll.Direction.ToString().ToLowerInvariant()} {scroll.Notches} in {(wholeWindow ? "the window" : $"{ElementFinder.Describe(area)} (element {area.Id})")}");
 
                 case DragStep drag:
                     var dragged = await UsableAsync(drag.Source).ConfigureAwait(false);

@@ -33,6 +33,12 @@ internal static partial class ElementFinder
         return (found, action.Reason);
     }
 
+    /// <summary>Whether the description means the whole window, e.g. <c>the page</c>. The model can't point at it: it has no number. Only a scroll uses it.</summary>
+    public static bool MeansWindow(string description) => WholeWindow().IsMatch(description);
+
+    [GeneratedRegex(@"^\s*(the\s+)?(whole\s+|main\s+|app\s+|browser\s+)?(window|page|web\s?page|screen)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex WholeWindow();
+
     /// <summary>
     /// The element found in an earlier reading, in a new one: same role, name and locator, the nearest to its old place. No model call.
     /// Null when it's gone.

@@ -115,6 +115,31 @@ public sealed class StepRunnerTests : IDisposable
         result.Steps[0].Message.ShouldEndWith("in link \"Results for cats\" (element 3)");
     }
 
+    [Theory]
+    [InlineData("scroll down 6 in the page")]
+    [InlineData("scroll down 6 in the window")]
+    [InlineData("scroll down 6 in the browser window")]
+    public async Task Scrolling_the_whole_page_needs_no_element(string line)
+    {
+        ScreenShows(Window);
+
+        var result = await RunAsync(line);
+
+        result.Verdict.ShouldBe(Verdict.Passed);
+        await _adapter.Received(1).ScrollAsync(0, 6, 0, Arg.Any<CancellationToken>());
+        result.Steps[0].Message.ShouldBe("scrolled down 6 in the window");
+    }
+
+    [Theory]
+    [InlineData("click the page")]
+    [InlineData("hover over the window")]
+    public async Task Only_a_scroll_takes_the_whole_window(string line)
+    {
+        ScreenShows(Window);
+
+        (await RunAsync(line)).Verdict.ShouldBe(Verdict.Inconclusive);
+    }
+
     [Fact]
     public async Task A_drag_step_drags_one_found_element_onto_the_other()
     {
