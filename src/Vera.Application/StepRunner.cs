@@ -205,7 +205,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                     return (StepOutcome.Done, $"hovered over {ElementFinder.Describe(hovered)} (element {hovered.Id})");
 
                 case ExpectShownStep shown:
-                    var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true).ConfigureAwait(false);
+                    var (seen, notSeen) = await WaitForAsync(shown.Target, _ => true, mustMatch: true).ConfigureAwait(false);
                     return seen is null
                         ? (StepOutcome.CheckFailed, notSeen)
                         : (StepOutcome.Done, $"{ElementFinder.Describe(seen)} is shown");
@@ -250,7 +250,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
 
         // The element the model picks for the description, waiting for the app until it's there and ready; or why there is none.
         // The model is asked only when the window's elements changed since it was last asked; the element it found is followed without it.
-        private async Task<(UiElement? Element, string NotFound)> WaitForAsync(string description, Func<UiElement, bool> ready)
+        private async Task<(UiElement? Element, string NotFound)> WaitForAsync(string description, Func<UiElement, bool> ready, bool mustMatch = false)
         {
             UiElement? element = null;
             string? asked = null;
@@ -266,7 +266,7 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 if (element is null && _screen!.Elements.Count > 1 && seen != asked)
                 {
                     asked = seen;
-                    (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct).ConfigureAwait(false);
+                    (element, reason) = await ElementFinder.FindAsync(runner.Llm, _screen, target, description, ct, mustMatch).ConfigureAwait(false);
                 }
 
                 if (element is not null && ready(element))

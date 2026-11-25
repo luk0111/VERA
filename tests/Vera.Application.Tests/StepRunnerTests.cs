@@ -155,6 +155,18 @@ public sealed class StepRunnerTests : IDisposable
         await ModelWasAsked(2);
     }
 
+    [Theory]
+    [InlineData("expect the results", true)]
+    [InlineData("click the results", false)]
+    public async Task A_check_or_a_search_must_match_and_not_be_the_closest_thing(string line, bool mustMatch)
+    {
+        await RunAsync(line);
+
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Is<TestTask>(t => t.ExpectedResult.Contains("don't pick the closest thing", StringComparison.Ordinal) == mustMatch),
+            Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task An_element_that_is_not_there_is_asked_about_once()
     {

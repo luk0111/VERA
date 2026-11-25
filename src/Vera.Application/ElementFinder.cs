@@ -11,11 +11,15 @@ namespace Vera.Application;
 /// </summary>
 internal static partial class ElementFinder
 {
+    // Asked to click something, a model tends to pick the closest thing, e.g. a grey cat for "the picture with an orange cat".
+    private const string MustMatch =
+        ". Answer fail if it isn't on the screen, which is fine: don't pick the closest thing. Before answering click, check in the screenshot that the element really is what is asked for, its picture and its colour too";
+
     internal const string NoElementsReason = "VERA can't see any buttons or fields in this window. Is it minimized?";
 
     /// <summary>The element and the model's reason; the element is null when the model found none.</summary>
     /// <exception cref="UnreadableAnswerException">The model answered twice without a valid action.</exception>
-    public static async Task<(UiElement? Element, string Reason)> FindAsync(ILlmClient llm, ScreenState screen, AppTarget target, string what, CancellationToken ct)
+    public static async Task<(UiElement? Element, string Reason)> FindAsync(ILlmClient llm, ScreenState screen, AppTarget target, string what, CancellationToken ct, bool mustMatch = false)
     {
         if (screen.Elements.Count <= 1)
         {
@@ -24,7 +28,7 @@ internal static partial class ElementFinder
 
         // "Has been clicked", not "is found": the model answers "done" once the expected result is on screen, and a visible element is already found.
         var element = Article().IsMatch(what) ? what : $"the {what}";
-        var task = new TestTask($"Click {element}", $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked", target);
+        var task = new TestTask($"Click {element}", $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked{(mustMatch ? MustMatch : "")}", target);
         var action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
 
         // A field that already has the focus (e.g. Wikipedia's search field) looks clicked, so the model may answer "done" instead of pointing at it.
@@ -33,7 +37,7 @@ internal static partial class ElementFinder
             task = task with
             {
                 Description = $"Click {element}, even if it is already selected or focused",
-                ExpectedResult = $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked one more time",
+                ExpectedResult = $"{char.ToUpperInvariant(element[0])}{element[1..]} has been clicked one more time{(mustMatch ? MustMatch : "")}",
             };
             action = await llm.DecideNextActionAsync(task, screen, [], ct).ConfigureAwait(false);
         }
