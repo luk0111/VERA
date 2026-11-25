@@ -6,17 +6,23 @@ namespace Vera.Application;
 /// Reads the picked app's window, so the chat model knows which app it is and what is in it,
 /// and notices when the window's title changes, e.g. when the tester switches to another browser tab.
 /// </summary>
-public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningAppSource runningApps)
+/// <param name="front">Gives VERA's window the front back after each read (#58); null leaves the app in front.</param>
+public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningAppSource runningApps, IFrontWindow? front = null)
 {
     /// <summary>
     /// Attaches to the process and reads its window. Never fails because of the app:
     /// when the window is gone or minimized, the context has no elements and says why in <see cref="ChatAppContext.Problem"/>.
     /// </summary>
-    public async Task<ChatAppContext> ReadAsync(int processId, string name, string windowTitle, CancellationToken ct)
+    public Task<ChatAppContext> ReadAsync(int processId, string name, string windowTitle, CancellationToken ct) =>
+        FocusReturn.AroundAsync(front, () => ReadWindowAsync(processId, name, windowTitle, ct));
+
+    private async Task<ChatAppContext> ReadWindowAsync(int processId, string name, string windowTitle, CancellationToken ct)
     {
         // Taken before the read, so a change during the read is noticed on the next check.
         var listedTitle = ListedTitle(processId);
-        var target = new AppTarget(name, AppPlatform.Desktop, "", ProcessId: processId);
+
+        // The title tells the adapter which window it is when the app has several, like Find and the steps runner do (#44).
+        var target = new AppTarget(windowTitle, AppPlatform.Desktop, "", ProcessId: processId);
         try
         {
             ScreenState screen;

@@ -732,7 +732,24 @@ public sealed class StepRunnerTests : IDisposable
 
         await runner.RunAsync(1234, "Shop", Steps("click the search button", "click the delete button"), _ => { order.Add("asked"); return Task.FromResult(true); }, null, Ct);
 
-        order.ShouldBe(["front", "asked"]);
+        order.ShouldBe(["front", "asked", "front"]);
+    }
+
+    // #58: without this the tester had to click back into VERA after every run.
+    [Fact]
+    public async Task VERAs_window_comes_back_when_the_run_ends_even_after_a_stop()
+    {
+        var window = new FrontWindow(77);
+        var front = Substitute.For<IFrontWindow>();
+        front.Current().Returns(window);
+        using var stop = new CancellationTokenSource();
+        _adapter.ClickAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(_ => { stop.Cancel(); return Task.CompletedTask; });
+        var runner = new StepRunner(() => _adapter, _llm, _secrets, _output, TimeSpan.Zero, TimeSpan.Zero, front);
+
+        var result = await runner.RunAsync(1234, "Shop", Steps("click the search button", "press enter"), null, null, stop.Token);
+
+        result.StoppedByTester.ShouldBeTrue();
+        await front.Received(1).BringBackAsync(window, CancellationToken.None);
     }
 
     [Fact]

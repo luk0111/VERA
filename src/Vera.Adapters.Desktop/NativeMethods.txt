@@ -21,3 +21,10 @@ PeekMessage
 PostThreadMessage
 MSLLHOOKSTRUCT
 KBDLLHOOKSTRUCT
+
+// Telling an app's windows apart (#44)
+EnumWindows
+IsWindowVisible
+GetWindowText
+GetWindowTextLength
+GetAncestor

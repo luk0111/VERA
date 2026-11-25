@@ -32,7 +32,10 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     private ScreenState? _state;
     private ScreenRect? _windowBounds;
 
-    /// <summary>Attaches to <see cref="AppTarget.ProcessId"/>'s main window, the window the process picker showed.</summary>
+    /// <summary>
+    /// Attaches to <see cref="AppTarget.ProcessId"/>'s window titled <see cref="AppTarget.Name"/>, the window the process picker showed;
+    /// to the process's main window when none has that title.
+    /// </summary>
     /// <exception cref="NotSupportedException">The target has no process id.</exception>
     /// <exception cref="InvalidOperationException">The process is gone or has no window.</exception>
     public Task StartAsync(AppTarget target, CancellationToken ct)
@@ -46,7 +49,9 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         try
         {
             using var process = Process.GetProcessById(processId);
-            _window = process.MainWindowHandle;
+
+            // shortcut: matched by title, so after the picked window's title changed (another tab) it falls back to the main window. Upgrade when AppTarget carries a window handle (Core v2).
+            _window = ProcessWindows.Pick(ProcessWindows.Of(processId), target.Name, process.MainWindowHandle);
         }
         catch (ArgumentException e)
         {
