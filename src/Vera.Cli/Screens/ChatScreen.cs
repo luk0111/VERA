@@ -183,6 +183,12 @@ internal static class ChatScreen
             var proposal = StepProposal.Read(reply, settings.ApiKeyNames, settings.Rules);
             if (proposal.Problem is { } problem)
             {
+                // JSON in the conversation makes the next JSON more likely.
+                if (StepProposal.IsActionJson(reply))
+                {
+                    session.ForgetLastReply();
+                }
+
                 // Once: without hearing why, the model writes the same steps again.
                 AnsiConsole.MarkupLine($"[grey]VERA's steps can't be used: {Markup.Escape(problem)} Asking VERA to correct them…[/]");
                 reply = await StreamReplyAsync(settings, app, session, ChatSession.StepsRefusedNote(problem));
@@ -363,7 +369,7 @@ internal static class ChatScreen
                         var next = chunks.MoveNextAsync().AsTask();
                         while (await Task.WhenAny(next, Task.Delay(WaitingTick)) != next)
                         {
-                            if (StepProposal.Visible(reply.ToString()).Length == 0)
+                            if (SoFar(reply).Length == 0)
                             {
                                 ctx.UpdateTarget(ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed));
                             }
@@ -377,8 +383,8 @@ internal static class ChatScreen
                         reply.Append(chunks.Current);
                         if (sinceRedraw.Elapsed >= RedrawInterval)
                         {
-                            // Only steps so far, which are not shown here: still thinking.
-                            var soFar = StepProposal.Visible(reply.ToString());
+                            // Only steps so far, or maybe JSON (#78), which are not shown here: still thinking.
+                            var soFar = SoFar(reply);
                             ctx.UpdateTarget(soFar.Length == 0 ? ReplyPanel(null, session.ProviderLabel, sinceSent.Elapsed) : ReplyPanel(soFar));
                             sinceRedraw.Restart();
                         }
@@ -419,7 +425,7 @@ internal static class ChatScreen
         {
             AnsiConsole.MarkupLine("[grey](no reply, send it again)[/]");
         }
-        else
+        else if (!StepProposal.IsActionJson(reply.ToString()))
         {
             // Some replies are only steps, without the sentence the model was asked for.
             var text = StepProposal.Visible(reply.ToString());
@@ -432,8 +438,19 @@ internal static class ChatScreen
             AnsiConsole.MarkupLine($"[grey]{Markup.Escape(FormatStats(stats))}[/]");
         }
 
+        if (session.DroppedForRoom > 0)
+        {
+            AnsiConsole.MarkupLine($"[grey]The chat got too long for the model, so it no longer sees the {session.DroppedForRoom} oldest messages. Attach a file again with /file if it still needs it, or type /clear to start fresh.[/]");
+        }
+
         SetConnection(settings, app, session, ConnectionState.Connected, "");
         return reply.ToString();
+    }
+
+    private static string SoFar(StringBuilder reply)
+    {
+        var text = reply.ToString();
+        return StepProposal.StartsLikeJson(text) ? "" : StepProposal.Visible(text);
     }
 
     // e.g. "212 tokens · 3.4 s · 62 tokens/s". Tokens include hidden reasoning, so they can exceed the visible text.

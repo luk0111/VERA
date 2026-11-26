@@ -227,8 +227,8 @@ public static partial class StepParser
             return new ExpectGoneStep(Describe(rest[gone.Length..]) ?? throw new FormatException("Say what should be gone, e.g. expect no delete button."));
         }
 
-        // "contains" with text that isn't quoted, or nothing after it.
-        if (ContainsWord().IsMatch(rest))
+        // "contains" with text that isn't quoted, or nothing after it. In quotes it's part of a name: the "Contains" checkbox.
+        if (ContainsWord().Matches(rest).Any(m => !InsideQuotes(rest, m.Index)))
         {
             throw new FormatException($"Put the text in quotes, e.g. {ContainsExample}.");
         }

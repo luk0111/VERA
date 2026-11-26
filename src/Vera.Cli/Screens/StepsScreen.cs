@@ -488,7 +488,7 @@ internal static class StepsScreen
             chain.MarkSaved(name);
             AnsiConsole.MarkupLine($"[green]Saved {chain.Steps.Count} steps as {Markup.Escape(name)}.[/] [grey]{Markup.Escape(path)}[/]");
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
         {
             Ui.ShowErrorPanel($"Could not save {name}: {e.Message}");
         }
@@ -797,7 +797,6 @@ internal static class StepsScreen
         };
         AnsiConsole.MarkupLine($"{verdict}: {done} of {steps.Count} steps done.");
         AnsiConsole.MarkupLine($"[grey]Screenshots: {Markup.Escape(result.Folder)}[/]");
-        AnsiConsole.MarkupLine("[grey]Click back into this window to continue.[/]");
         AnsiConsole.WriteLine();
         return result;
     }

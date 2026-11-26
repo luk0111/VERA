@@ -62,6 +62,45 @@ public sealed class StepProposalTests
         StepProposal.Read($"<steps>\n{line}\n</steps>", Keys).Problem.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("{\"action\": \"key_combination\", \"keys\": [\"ctrl\", \"l\"]}")]
+    [InlineData("```json\n{\"action\": \"key_combination\", \"keys\": [\"ctrl\", \"l\"]}\n```")]
+    [InlineData("```\n[{\"tool\": \"type\", \"text\": \"cats\"}]\n```")]
+    [InlineData(" {\"Steps\": [\"click A\"]} ")]
+    public void An_action_written_as_json_is_not_an_answer(string reply)
+    {
+        var proposal = StepProposal.Read(reply, Keys);
+
+        proposal.Text.ShouldBe("");
+        proposal.Steps.ShouldBeEmpty();
+        proposal.Problem.ShouldNotBeNull().ShouldContain("JSON");
+    }
+
+    [Theory]
+    [InlineData("The file has {\"action\": \"click\"} in it.")]
+    [InlineData("{\"name\": \"Jane\", \"age\": 3}")]
+    [InlineData("{not json")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("Should I test this?\n<steps>\nclick A\n</steps>")]
+    public void Other_replies_are_shown_as_they_are(string reply)
+    {
+        StepProposal.IsActionJson(reply).ShouldBeFalse();
+        StepProposal.Read(reply, Keys).Problem.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("{", true)]
+    [InlineData("``", true)]
+    [InlineData("```js", true)]
+    [InlineData("\n```json\n{", true)]
+    [InlineData("[{", true)]
+    [InlineData("", false)]
+    [InlineData("Should", false)]
+    [InlineData("```text", false)]
+    public void A_reply_that_may_become_json_is_not_shown_while_it_arrives(string soFar, bool maybe) =>
+        StepProposal.StartsLikeJson(soFar).ShouldBe(maybe);
+
     [Fact]
     public void Too_many_steps_are_not_used()
     {

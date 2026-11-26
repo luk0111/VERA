@@ -8,21 +8,27 @@ namespace Vera.Application;
 /// <summary>
 /// Finds one element in a running app: reads its window, asks the model which element it is, and saves a screenshot with it boxed.
 /// It is the agent loop's look-and-decide step, run once and shown to the tester. <see cref="ClickAsync"/> and <see cref="TypeAsync"/> then act on what was found, if the tester asks.
+/// VERA's window gets the front back after each reading and action (#58).
 /// </summary>
-public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient llm, string outputDirectory)
+/// <param name="front">Brings VERA's window back after the app was brought to the front; null leaves the app in front.</param>
+public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient llm, string outputDirectory, IFrontWindow? front = null)
 {
     /// <param name="what">What the tester typed, e.g. <c>Log in button</c>.</param>
     /// <exception cref="InvalidOperationException">The app is closed or has no window.</exception>
     public async Task<FindResult> FindAsync(int processId, string windowTitle, string what, CancellationToken ct)
     {
         var target = Target(processId, windowTitle);
-        ScreenState screen;
-        var adapter = newAdapter();
-        await using (adapter.ConfigureAwait(false))
+
+        // Back to VERA right after the reading: asking the model can take a while, and the tester watches VERA meanwhile.
+        var screen = await FocusReturn.AroundAsync(front, async () =>
         {
-            await adapter.StartAsync(target, ct).ConfigureAwait(false);
-            screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
-        }
+            var adapter = newAdapter();
+            await using (adapter.ConfigureAwait(false))
+            {
+                await adapter.StartAsync(target, ct).ConfigureAwait(false);
+                return await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
 
         var (element, reason) = await ElementFinder.FindAsync(llm, screen, target, what, ct).ConfigureAwait(false);
         var image = element is null ? screen.ScreenshotPng : ElementHighlight.DrawBox(screen.ScreenshotPng, screen.Elements[0].Bounds, element.Bounds);
@@ -69,9 +75,14 @@ public sealed class FindElementService(Func<IAppAdapter> newAdapter, ILlmClient 
         return (rules ?? RiskRules.Default).IsRisky(element.Name);
     }
 
-    private async Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
+    private Task<UiElement> ActOnAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(found);
+        return FocusReturn.AroundAsync(front, () => ActOnSameAsync(processId, windowTitle, found, act, ct));
+    }
+
+    private async Task<UiElement> ActOnSameAsync(int processId, string windowTitle, UiElement found, Func<IAppAdapter, int, Task> act, CancellationToken ct)
+    {
         var adapter = newAdapter();
         await using (adapter.ConfigureAwait(false))
         {

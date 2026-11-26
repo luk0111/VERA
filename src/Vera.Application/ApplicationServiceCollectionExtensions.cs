@@ -84,11 +84,12 @@ public static class ApplicationServiceCollectionExtensions
 #else
         services.AddVeraMacAdapter();
 #endif
-        services.AddTransient(sp => new ChatAppContextReader(sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>()));
+        services.AddTransient(sp => new ChatAppContextReader(
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>(), sp.GetRequiredService<IFrontWindow>()));
         services.AddTransient(sp => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find")));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find"), sp.GetRequiredService<IFrontWindow>()));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find")));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find"), sp.GetRequiredService<IFrontWindow>()));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
             Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), rules: rules));

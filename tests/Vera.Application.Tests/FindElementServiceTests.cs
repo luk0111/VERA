@@ -32,6 +32,25 @@ public sealed class FindElementServiceTests : IDisposable
         File.Exists(result.ImagePath).ShouldBeTrue();
     }
 
+    // #58: VERA's window comes back right after the reading, before the model is asked, and again after an action.
+    [Fact]
+    public async Task VERAs_window_comes_back_after_reading_and_after_acting()
+    {
+        var window = new FrontWindow(77);
+        var front = Substitute.For<IFrontWindow>();
+        front.Current().Returns(window);
+        var order = new List<string>();
+        front.BringBackAsync(window, Arg.Any<CancellationToken>()).Returns(_ => { order.Add("front"); return true; });
+        _llm.DecideNextActionAsync(Arg.Any<TestTask>(), Arg.Any<ScreenState>(), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => { order.Add("model"); return new AgentAction(AgentActionType.Click, 7, null, ""); });
+        var service = new FindElementService(() => _adapter, _llm, _output, front);
+
+        var found = await service.FindAsync(1234, "App", "Log in button", Ct);
+        await service.ClickAsync(1234, "App", found.Element!, Ct);
+
+        order.ShouldBe(["front", "model", "front"]);
+    }
+
     [Fact]
     public async Task A_fail_answer_is_not_found_with_the_models_reason()
     {

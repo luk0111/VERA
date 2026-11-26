@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using Vera.Core;
@@ -28,6 +29,11 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
         ArgumentNullException.ThrowIfNull(reply);
         ArgumentNullException.ThrowIfNull(apiKeyNames);
         rules ??= RiskRules.Default;
+        if (IsActionJson(reply))
+        {
+            return new StepProposal("", [], "the reply was JSON, not a sentence and steps.");
+        }
+
         var blocks = Block().Matches(reply);
         var text = Visible(reply);
         if (blocks.Count == 0)
@@ -128,6 +134,43 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
     }
 
     /// <summary>
+    /// Whether the whole reply is an action written as JSON, e.g. an action "key_combination" with its keys (#78). Models used to driving a computer
+    /// sometimes answer a message like <c>type "cats" into the search field</c> that way. VERA can't run it and the tester has no use for it.
+    /// </summary>
+    public static bool IsActionJson(string reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+        var text = Fence().Match(reply) is { Success: true } fence ? fence.Groups["inside"].Value : reply;
+        if (!StartsLikeJson(text))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var json = JsonDocument.Parse(text);
+            var first = json.RootElement.ValueKind == JsonValueKind.Array && json.RootElement.GetArrayLength() > 0 ? json.RootElement[0] : json.RootElement;
+            return first.ValueKind == JsonValueKind.Object
+                && first.EnumerateObject().Any(p => ActionNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether a reply that is still arriving may turn out to be <see cref="IsActionJson"/>, so it isn't shown yet.</summary>
+    public static bool StartsLikeJson(string replySoFar)
+    {
+        ArgumentNullException.ThrowIfNull(replySoFar);
+        var start = replySoFar.TrimStart();
+        return start.StartsWith('{') || start.StartsWith("[{", StringComparison.Ordinal) || start.StartsWith("```json", StringComparison.OrdinalIgnoreCase)
+            || (start.Length > 0 && "```json".StartsWith(start, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static readonly string[] ActionNames = ["action", "actions", "steps", "tool", "tool_name", "function", "command", "keys"];
+
+    /// <summary>
     /// Whether a step may change or send something, so the tester looks at it before running. Wider than what a run asks about:
     /// a run asks only before clicks and drops on risky names, and nothing at all before keys.
     /// </summary>
@@ -150,6 +193,9 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
 
     [GeneratedRegex(@"<steps>(?<lines>.*?)</steps>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant)]
     private static partial Regex Block();
+
+    [GeneratedRegex(@"^\s*```(json)?\s*(?<inside>.*?)\s*```\s*$", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant)]
+    private static partial Regex Fence();
 
     // "1. ", "2) ", "- " in front of a step.
     [GeneratedRegex(@"^(\d+[.)]|[-*•])\s+")]
