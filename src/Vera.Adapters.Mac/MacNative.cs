@@ -9,6 +9,7 @@ internal static partial class MacNative
     public const int AxSuccess = 0;
     public const int AxValueCgPoint = 1;
     public const int AxValueCgSize = 2;
+    public const uint WindowListAll = 0;
     public const uint WindowListOnScreenOnly = 1;
     public const uint WindowListExcludeDesktopElements = 16;
 
@@ -117,6 +118,13 @@ internal static partial class MacNative
 
     [LibraryImport(ApplicationServicesLibrary)]
     public static partial int AXUIElementSetAttributeValue(IntPtr element, IntPtr attribute, IntPtr value);
+
+    /// <summary>
+    /// The window number of an Accessibility window, the same one the window list has. macOS has no public call for it; window managers have used this one for years.
+    /// Throws <see cref="EntryPointNotFoundException"/> if it is ever removed.
+    /// </summary>
+    [LibraryImport(ApplicationServicesLibrary)]
+    public static partial int _AXUIElementGetWindow(IntPtr window, out uint number);
 
     [LibraryImport(ApplicationServicesLibrary)]
     public static partial int AXUIElementPerformAction(IntPtr element, IntPtr action);

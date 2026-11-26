@@ -50,6 +50,7 @@ internal static class ProcessPicker
 
             if (choice != Refresh)
             {
+                (runningApps as IPickedWindows)?.Picked(choice.Id);
                 return choice;
             }
         }

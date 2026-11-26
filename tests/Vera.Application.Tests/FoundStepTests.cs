@@ -34,9 +34,9 @@ public sealed class FoundStepTests
     }
 
     [Fact]
-    public void A_name_that_would_read_back_as_another_step_uses_the_testers_words()
+    public void A_name_with_the_word_contains_is_used_as_the_name()
     {
-        FoundStep.Expect(Found("Button", "Box contains eggs"), "the egg button").ShouldNotBeNull().ToString().ShouldBe("expect the egg button");
+        FoundStep.Expect(Found("Button", "Box contains eggs"), "the egg button").ShouldNotBeNull().ToString().ShouldBe("expect button \"Box contains eggs\"");
     }
 
     [Fact]

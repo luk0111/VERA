@@ -44,7 +44,43 @@ internal static class PathGuard
             throw new FileAccessException(FileAccessError.NotFound, $"File not found: {fullPath}");
         }
 
+        // A link or a junction can lead into a refused folder under a harmless name.
+        RejectDenied(WhereItLeads(fullPath, 0));
         return fullPath;
+    }
+
+    // The path with every link and junction followed, one part at a time.
+    private static string WhereItLeads(string fullPath, int links)
+    {
+        // A loop of links would never end.
+        if (links > 40)
+        {
+            throw new FileAccessException(FileAccessError.NotAllowed, NotReadable);
+        }
+
+        var root = Path.GetPathRoot(fullPath) ?? "";
+        var current = root;
+        foreach (var part in fullPath[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            // The exact name, not a search: on macOS and Linux a name may hold * or ?, which a search would treat as wildcards.
+            // Short names (SSH~1) need no lookup: Path.GetFullPath already writes them out in full.
+            var path = Path.Combine(current, part);
+            FileSystemInfo entry = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            string? target;
+            try
+            {
+                target = entry.LinkTarget;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // A link VERA can't read could lead anywhere.
+                throw new FileAccessException(FileAccessError.NotAllowed, NotReadable);
+            }
+
+            current = target is null ? entry.FullName : WhereItLeads(Path.GetFullPath(target, current), links + 1);
+        }
+
+        return current;
     }
 
     private static string Unquote(string path)

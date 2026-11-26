@@ -8,6 +8,10 @@ using FlaUI.UIA3;
 using Vera.Core;
 using Vera.Input;
 
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
+
 namespace Vera.Adapters.Desktop;
 
 /// <summary>
@@ -20,6 +24,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
     private const string WindowGone = "The app is closed or has no window.";
     private const string WindowMinimized = "The app's window is minimized. Restore it and try again.";
     private const string WindowMoved = "The window moved since VERA last looked at it. Read it again.";
+    private const string WindowOffScreen = "The window is off the screen. Move it fully onto the screen and try again.";
 
     /// <summary>How long Windows gets to redraw a window it just brought to the front.</summary>
     private static readonly TimeSpan RedrawTime = TimeSpan.FromMilliseconds(200);
@@ -133,7 +138,34 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
         var element = state.Elements.FirstOrDefault(e => e.Id >= (orWindow ? 0 : 1) && e.Id == elementId)
             ?? throw new ArgumentOutOfRangeException(nameof(elementId), elementId, $"Element {elementId} is not on the latest screen.");
         return ClickPoint.Of(element.Bounds, window)
-            ?? throw new InvalidOperationException($"Element {elementId} is outside the window.");
+            ?? throw new InvalidOperationException($"Element {elementId} is outside the window or off the screen. Move the window fully onto the screen.");
+    }
+
+    /// <summary>The part of <paramref name="window"/> inside <paramref name="desktop"/>; null when none of it is.</summary>
+    internal static ScreenRect? VisiblePart(ScreenRect window, ScreenRect desktop)
+    {
+        var left = Math.Max(window.X, desktop.X);
+        var top = Math.Max(window.Y, desktop.Y);
+        var right = Math.Min(window.X + window.Width, desktop.X + desktop.Width);
+        var bottom = Math.Min(window.Y + window.Height, desktop.Y + desktop.Height);
+        return right > left && bottom > top ? new ScreenRect(left, top, right - left, bottom - top) : null;
+    }
+
+    /// <summary>
+    /// The monitor most of the window is on, in physical pixels (VERA is DPI aware). Not the rectangle around all monitors:
+    /// with monitors of different sizes it has corners no monitor shows, where the mouse can't go.
+    /// </summary>
+    internal static ScreenRect MonitorOf(nint window)
+    {
+        var monitor = PInvoke.MonitorFromWindow(new HWND(window), MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (!PInvoke.GetMonitorInfo(monitor, ref info))
+        {
+            throw new InvalidOperationException(WindowOffScreen);
+        }
+
+        var r = info.rcMonitor;
+        return new ScreenRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
     }
 
     /// <summary>Replaces the element's text: clicks it, selects all with Ctrl+A, then types. Empty text clears it. The text is never logged.</summary>
@@ -190,7 +222,10 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
                 throw new InvalidOperationException(WindowGone);
             }
 
-            var bounds = new ScreenRect(r.X, r.Y, r.Width, r.Height);
+            // A maximized window reaches a few pixels past the monitor, and a window can be dragged half off it.
+            // Only the part on its monitor can be captured and clicked, so that part is the window from here on.
+            var bounds = VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), MonitorOf(_window))
+                ?? throw new InvalidOperationException(WindowOffScreen);
             var title = window.Properties.Name.ValueOrDefault ?? "";
 
             var candidates = new List<RawElement>();
@@ -203,7 +238,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
                 }
             }
 
-            var frame = await screen.ScreenshotAreaAsync(r.X, r.Y, r.Width, r.Height, ct).ConfigureAwait(false);
+            var frame = await screen.ScreenshotAreaAsync(bounds.X, bounds.Y, bounds.Width, bounds.Height, ct).ConfigureAwait(false);
             var state = new ScreenState(title, ElementNumbering.Number(title, bounds, candidates), frame.Png, []);
             _state = state;
             _windowBounds = bounds;
@@ -235,7 +270,7 @@ public sealed class DesktopAdapter(IScreen screen) : IAppAdapter
                     var window = _automation.FromHandle(_window);
                     await BringToFrontAsync(window, ct).ConfigureAwait(false);
                     var r = window.BoundingRectangle;
-                    if (new ScreenRect(r.X, r.Y, r.Width, r.Height) != readBounds)
+                    if (VisiblePart(new ScreenRect(r.X, r.Y, r.Width, r.Height), MonitorOf(_window)) != readBounds)
                     {
                         throw new InvalidOperationException(WindowMoved);
                     }

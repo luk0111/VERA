@@ -4,6 +4,10 @@
 GetForegroundWindow
 GetWindowThreadProcessId
 
+// The window's monitor, to keep screenshots and clicks on the screen
+MonitorFromWindow
+GetMonitorInfo
+
 // Bringing the app to the front
 SetForegroundWindow
 BringWindowToTop

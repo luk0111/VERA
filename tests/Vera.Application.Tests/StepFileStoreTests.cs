@@ -111,6 +111,20 @@ public sealed class StepFileStoreTests : IDisposable
     [InlineData("../login", false)]
     [InlineData("a.b", false)]
     [InlineData("a:b", false)]
+    [InlineData("Autentificare-ț", true)]
+    [InlineData("Căutare pisici", true)]
+    [InlineData("CON", false)]
+    [InlineData("com1", false)]
+    [InlineData("console", true)]
     public void Names_are_plain_file_names(string name, bool valid) =>
         StepFileStore.IsValidName(name).ShouldBe(valid);
+
+    [Fact]
+    public void A_step_with_a_line_break_is_not_saved()
+    {
+        var e = Should.Throw<ArgumentException>(() => _store.Save("broken", [new ClickStep("the search button"), new ClickStep("button \"Save\nfile\"")]));
+
+        e.Message.ShouldBe("Step 2 has a line break, so it can't be saved. Edit it into one line.");
+        _store.Exists("broken").ShouldBeFalse();
+    }
 }

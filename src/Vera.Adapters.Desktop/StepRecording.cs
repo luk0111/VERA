@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 
 namespace Vera.Adapters.Desktop;
@@ -63,7 +64,7 @@ internal interface IRecordedElements<TElement>
 /// Turns what the tester did into recorded actions, the same way on every platform. The platform's hook gives clicks and keys;
 /// typing is not caught key by key: when the tester leaves a text field, its text is read.
 /// </summary>
-internal static class StepRecording
+internal static partial class StepRecording
 {
     private static readonly HashSet<string> TextRoles = new(StringComparer.Ordinal) { "Edit", "Document", "ComboBox" };
 
@@ -116,7 +117,7 @@ internal static class StepRecording
                     continue;
                 }
 
-                var (role, name) = (elements.Role(element), elements.Name(element));
+                var (role, name) = (elements.Role(element), OneLine(elements.Name(element)));
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     yield return new RecordedSkip($"Skipped a click on a {role} with no name.");
@@ -158,6 +159,12 @@ internal static class StepRecording
         return isAction ? (ctrl ? "ctrl+" : "") + (shift ? "shift+" : "") + (alt ? "alt+" : "") + key : null;
     }
 
+    // A name can span lines, e.g. a button with two lines of text. A step is one line: a saved file would split it in two and fail to load.
+    internal static string OneLine(string name) => LineBreaks().Replace(name, " ");
+
+    [GeneratedRegex(@"[ \t]*[\r\n\u2028\u2029]+[ \t]*", RegexOptions.CultureInvariant)]
+    private static partial Regex LineBreaks();
+
     private static bool IsFunctionKey(string key) => key.Length is 2 or 3 && key[0] == 'f' && char.IsAsciiDigit(key[1]);
 
     // Ctrl with these only edits the text being typed (select all, copy, paste, undo, move by word), which the field's text already shows.
@@ -174,7 +181,7 @@ internal static class StepRecording
         }
 
         lastText = text;
-        var (role, name) = (elements.Role(field), elements.Name(field));
+        var (role, name) = (elements.Role(field), OneLine(elements.Name(field)));
         return text.Contains('\n', StringComparison.Ordinal) || text.Contains('\r', StringComparison.Ordinal)
             ? new RecordedSkip($"Skipped typing into {role} \"{name}\": text with several lines can't be a step yet.")
             : new RecordedType(role, name, text);

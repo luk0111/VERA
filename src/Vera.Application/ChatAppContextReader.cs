@@ -56,9 +56,12 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
         return now is not null && !string.Equals(now, last.ListedTitle, StringComparison.Ordinal);
     }
 
-    // The picked window's row when it has a handle: another window of the same app (a second browser window) has its own title.
-    private string? ListedTitle(int processId, nint window) =>
-        runningApps.List().FirstOrDefault(a => a.ProcessId == processId && (window == 0 || a.Window == window)) is { WindowTitle.Length: > 0 } app
-            ? app.WindowTitle
-            : null;
+    // macOS tells the picked window apart itself; on Windows the picked row's handle does, since another window of the app has its own title.
+    private string? ListedTitle(int processId, nint window)
+    {
+        var title = runningApps is IPickedWindows windows
+            ? windows.TitleOf(processId)
+            : runningApps.List().FirstOrDefault(a => a.ProcessId == processId && (window == 0 || a.Window == window))?.WindowTitle;
+        return string.IsNullOrEmpty(title) ? null : title;
+    }
 }
