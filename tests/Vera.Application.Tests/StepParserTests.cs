@@ -47,6 +47,12 @@ public sealed class StepParserTests
     public void Expect_title_without_contains_is_an_element() =>
         StepParser.Parse("expect title bar").ShouldBe(new ExpectShownStep("title bar"));
 
+    [Theory]
+    [InlineData("expect the \"Contains\" checkbox", "the \"Contains\" checkbox")]
+    [InlineData("expect \"Contains text\"", "Contains text")]
+    public void Contains_in_quotes_is_part_of_a_name(string line, string target) =>
+        StepParser.Parse(line).ShouldBe(new ExpectShownStep(target));
+
     [Fact]
     public void Commands_and_into_ignore_case() =>
         StepParser.Parse("TYPE \"cats\" INTO the Search box").ShouldBe(new TypeStep("cats", "the Search box"));

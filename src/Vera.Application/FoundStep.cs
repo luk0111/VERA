@@ -35,7 +35,7 @@ public static class FoundStep
         return (useName ? ReadsBack(step(ElementFinder.Describe(element))) : null) ?? ReadsBack(step(what.Trim()));
     }
 
-    // A step is saved as one line of text: one that would read back as something else (a line break, or the word "contains" in a name) is no use.
+    // A step is saved as one line of text: one that would read back as something else (e.g. a line break in a name) is no use.
     private static StepCommand? ReadsBack(StepCommand step)
     {
         var line = step.ToString();
