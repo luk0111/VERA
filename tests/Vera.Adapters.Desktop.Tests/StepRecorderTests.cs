@@ -154,6 +154,25 @@ public sealed class StepRecorderTests
         ((RecordedSkip)actions[1]).Reason.ShouldContain("several lines");
     }
 
+    [Fact]
+    public async Task A_name_on_several_lines_is_written_on_one()
+    {
+        var app = new FakeApp
+        {
+            [(10, 10)] = new FakeElement("Button", "Save\r\n  file"),
+            [(20, 20)] = new FakeElement("Edit", "Notes\nfor today", "", "cats"),
+        };
+
+        var actions = await RecordAsync(app, new ClickInput(10, 10), new ClickInput(20, 20), Key("esc"));
+
+        actions.ShouldBe([
+            new RecordedClick("Button", "Save file"),
+            new RecordedClick("Edit", "Notes for today"),
+            new RecordedType("Edit", "Notes for today", "cats"),
+            new RecordedPress("esc"),
+        ]);
+    }
+
     private static KeyInput Key(string key) => new(key, Ctrl: false, Shift: false, Alt: false);
 
     private static async Task<List<RecordedAction>> RecordAsync(FakeApp app, params HookInput[] inputs)
