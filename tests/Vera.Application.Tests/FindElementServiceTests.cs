@@ -96,6 +96,19 @@ public sealed class FindElementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Finding_and_clicking_use_the_picked_window()
+    {
+        ModelAnswers(new AgentAction(AgentActionType.Fail, null, null, ""));
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, LogIn));
+        var service = NewService();
+
+        await service.FindAsync(1234, "App", "Log in button", Ct, window: 77);
+        await service.ClickAsync(1234, "App", LogIn, Ct, window: 77);
+
+        await _adapter.Received(2).StartAsync(Arg.Is<AppTarget>(t => t.Window == 77), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task The_model_is_asked_to_click_what_the_tester_typed()
     {
         ModelAnswers(new AgentAction(AgentActionType.Fail, null, null, ""));

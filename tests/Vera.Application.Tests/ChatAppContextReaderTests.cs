@@ -172,6 +172,25 @@ public sealed class ChatAppContextReaderTests
         reader.TitleChanged(app).ShouldBeTrue();
     }
 
+    // A browser lists one row per window; the chat follows the picked one and ignores the other's tabs.
+    [Fact]
+    public async Task Only_the_picked_windows_title_counts_when_the_app_has_several()
+    {
+        ScreenShows("Gmail - Opera", Window);
+        _runningApps.List().Returns([new RunningAppInfo(1234, "Opera", "News", 11), new RunningAppInfo(1234, "Opera", "Gmail", 22)]);
+        var reader = NewReader();
+
+        var app = await reader.ReadAsync(1234, "Opera", "Gmail", Ct, window: 22);
+
+        await _adapter.Received(1).StartAsync(Arg.Is<AppTarget>(t => t.Window == 22), Arg.Any<CancellationToken>());
+        app.Window.ShouldBe(22);
+        app.ListedTitle.ShouldBe("Gmail");
+        _runningApps.List().Returns([new RunningAppInfo(1234, "Opera", "Sports", 11), new RunningAppInfo(1234, "Opera", "Gmail", 22)]);
+        reader.TitleChanged(app).ShouldBeFalse();
+        _runningApps.List().Returns([new RunningAppInfo(1234, "Opera", "Sports", 11), new RunningAppInfo(1234, "Opera", "YouTube", 22)]);
+        reader.TitleChanged(app).ShouldBeTrue();
+    }
+
     private void ListShows(int processId, string title) =>
         _runningApps.List().Returns([new RunningAppInfo(processId, "Opera", title)]);
 

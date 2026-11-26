@@ -38,7 +38,7 @@ internal static class FindInSteps
         FindResult result;
         try
         {
-            result = await AnsiConsole.Status().StartAsync("VERA is looking…", _ => service.FindAsync(app.Id, app.WindowTitle, what, CancellationToken.None));
+            result = await AnsiConsole.Status().StartAsync("VERA is looking…", _ => service.FindAsync(app.Id, app.WindowTitle, what, CancellationToken.None, app.Window));
         }
 #pragma warning disable CA1031 // Any failure of one search is shown on screen; the steps written so far must stay.
         catch (Exception e)
@@ -117,7 +117,7 @@ internal static class FindInSteps
                 await ActAsync(
                     "VERA is clicking…",
                     "click it",
-                    () => service.ClickAsync(app.Id, app.WindowTitle, found, CancellationToken.None),
+                    () => service.ClickAsync(app.Id, app.WindowTitle, found, CancellationToken.None, app.Window),
                     clicked => $"Clicked \"{clicked.Name}\".");
                 return (null, true);
             case FoundAction.TypeNow:
@@ -155,7 +155,7 @@ internal static class FindInSteps
         await ActAsync(
             "VERA is typing…",
             "type into it",
-            () => service.TypeAsync(app.Id, app.WindowTitle, found, text, CancellationToken.None),
+            () => service.TypeAsync(app.Id, app.WindowTitle, found, text, CancellationToken.None, app.Window),
             typed => text.Length == 0 ? $"Cleared \"{typed.Name}\"." : $"Typed {text.Length} characters into \"{typed.Name}\".");
     }
 

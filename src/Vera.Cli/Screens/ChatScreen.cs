@@ -585,7 +585,7 @@ internal static class ChatScreen
     private static async Task ReadAppAsync(RunningApp app, ChatSession session, ChatAppContextReader appReader)
     {
         var context = await AnsiConsole.Status()
-            .StartAsync("Reading the app's window…", _ => appReader.ReadAsync(app.Id, app.Name, app.WindowTitle, CancellationToken.None));
+            .StartAsync("Reading the app's window…", _ => appReader.ReadAsync(app.Id, app.Name, app.WindowTitle, CancellationToken.None, app.Window));
         session.SetApp(context);
     }
 

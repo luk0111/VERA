@@ -59,14 +59,15 @@ internal static class ProcessPicker
     // Sorted by name.
     private static List<RunningApp> RunningApps(IRunningAppSource source)
     {
-        var apps = source.List().Select(app => new RunningApp(app.ProcessId, app.Name, app.WindowTitle)).ToList();
+        var apps = source.List().Select(app => new RunningApp(app.ProcessId, app.Name, app.WindowTitle, app.Window)).ToList();
         apps.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.ToString(), b.ToString()));
         return apps;
     }
 }
 
 /// <summary>A running app the tester can pick. The id tells apart two windows with the same name.</summary>
-internal sealed record RunningApp(int Id, string Name, string WindowTitle)
+/// <param name="Window">The window's handle, so VERA keeps to this window of the app; 0 when the system has none.</param>
+internal sealed record RunningApp(int Id, string Name, string WindowTitle, nint Window = 0)
 {
     public override string ToString() => WindowTitle.Length == 0 ? $"{Name} ({Id})" : $"{Name} ({Id}) - {WindowTitle}";
 }

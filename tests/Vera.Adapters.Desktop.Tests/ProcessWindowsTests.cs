@@ -22,6 +22,13 @@ public sealed class ProcessWindowsTests
         ProcessWindows.Pick([], "Untitled - Notepad", Main).ShouldBe(Main);
     }
 
+    [Fact]
+    public void No_window_or_a_closed_one_does_not_belong_to_the_process()
+    {
+        ProcessWindows.Belongs(0, Environment.ProcessId).ShouldBeFalse();
+        ProcessWindows.Belongs(0x7FFF_FFF0, Environment.ProcessId).ShouldBeFalse();
+    }
+
     [Theory]
     [InlineData(true, true, true, true)]     // the app's own window
     [InlineData(true, true, false, true)]    // a dialog it owns: its root owner is the app's window
