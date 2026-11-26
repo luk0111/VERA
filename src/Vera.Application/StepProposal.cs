@@ -23,10 +23,12 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
 
     /// <summary>Reads a finished reply. One bad line drops them all: a test with a step missing would check something else.</summary>
     /// <param name="apiKeyNames">Saved secrets that are VERA's own keys. A step that would type one into the app is refused.</param>
-    public static StepProposal Read(string reply, IReadOnlyCollection<string> apiKeyNames)
+    /// <param name="rules">A click or drop on something in <see cref="RiskRules.NeverDo"/> is refused (#38); <see cref="RiskRules.Default"/> when null.</param>
+    public static StepProposal Read(string reply, IReadOnlyCollection<string> apiKeyNames, RiskRules? rules = null)
     {
         ArgumentNullException.ThrowIfNull(reply);
         ArgumentNullException.ThrowIfNull(apiKeyNames);
+        rules ??= RiskRules.Default;
         if (IsActionJson(reply))
         {
             return new StepProposal("", [], "the reply was JSON, not a sentence and steps.");
@@ -77,6 +79,11 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
                     if (step is PressStep press && !StepParser.IsCombo(press.Keys) && !StepParser.IsKeyName(press.Keys))
                     {
                         return new StepProposal(text, [], $"\"{line}\" presses something that isn't a key. For a button or link write click, e.g. click {press.Keys}.");
+                    }
+
+                    if (step switch { ClickStep c => c.Target, DragStep d => d.Destination, _ => null } is { } acted && rules.NeverDoIn(acted) is { } never)
+                    {
+                        return new StepProposal(text, [], $"\"{line}\" would {never}. VERA never does that in steps the AI proposes; write the step yourself if you mean it.");
                     }
 
                     if (ExpectGoneStep.Problem(step) is { } gone)
@@ -167,10 +174,11 @@ public sealed partial record StepProposal(string Text, IReadOnlyList<StepCommand
     /// Whether a step may change or send something, so the tester looks at it before running. Wider than what a run asks about:
     /// a run asks only before clicks and drops on risky names, and nothing at all before keys.
     /// </summary>
-    public static bool DeservesALook(StepCommand step) => step switch
+    /// <param name="rules">The words and keys that count; <see cref="RiskRules.Default"/> when null.</param>
+    public static bool DeservesALook(StepCommand step, RiskRules? rules = null) => step switch
     {
-        PressStep p => RiskyKeys().IsMatch(p.Keys),
-        ClickStep c => RiskyWords.IsRisky(c.Target),
+        PressStep p => RiskyKeys().IsMatch(p.Keys) || (rules ?? RiskRules.Default).IsRiskyKey(p.Keys),
+        ClickStep c => (rules ?? RiskRules.Default).IsRisky(c.Target),
         DragStep => true,
         TypeStep t => SecretPlaceholder.FindNames(t.Text).Count > 0,
         _ => false,

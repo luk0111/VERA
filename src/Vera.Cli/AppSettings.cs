@@ -16,6 +16,9 @@ internal sealed class AppSettings
     /// <summary>The names of the secrets that hold VERA's own API keys, never the keys.</summary>
     public IReadOnlyList<string> ApiKeyNames => ConfiguredModels.Where(m => !string.IsNullOrWhiteSpace(m.ApiKeyName)).Select(m => m.ApiKeyName).ToList();
 
+    /// <summary>What asks first, and what VERA never does in steps the AI proposed, from the <c>Safety</c> section of appsettings.json. Set in Program.cs.</summary>
+    public RiskRules Rules { get; set; } = RiskRules.Default;
+
     /// <summary>True when the selected model runs locally and needs no API key.</summary>
     public bool IsLocalModel => SelectedModel is { NeedsApiKey: false };
 

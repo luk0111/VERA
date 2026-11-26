@@ -180,7 +180,7 @@ internal static class ChatScreen
                 continue;
             }
 
-            var proposal = StepProposal.Read(reply, settings.ApiKeyNames);
+            var proposal = StepProposal.Read(reply, settings.ApiKeyNames, settings.Rules);
             if (proposal.Problem is { } problem)
             {
                 // JSON in the conversation makes the next JSON more likely.
@@ -198,7 +198,7 @@ internal static class ChatScreen
                     continue;
                 }
 
-                proposal = StepProposal.Read(reply, settings.ApiKeyNames);
+                proposal = StepProposal.Read(reply, settings.ApiKeyNames, settings.Rules);
             }
 
             acted = await OfferStepsAsync(settings, app, session, find, runner, store, draft, proposal);
@@ -230,7 +230,7 @@ internal static class ChatScreen
         }
 
         StepsScreen.ShowSteps(steps);
-        var look = steps.Select((step, i) => (step, number: i + 1)).Where(s => StepProposal.DeservesALook(s.step)).Select(s => s.number).ToList();
+        var look = steps.Select((step, i) => (step, number: i + 1)).Where(s => StepProposal.DeservesALook(s.step, settings.Rules)).Select(s => s.number).ToList();
         if (look.Count > 0)
         {
             AnsiConsole.MarkupLine(
@@ -262,7 +262,7 @@ internal static class ChatScreen
             {
                 case Proposed.Run:
                     acted = true;
-                    if (await StepsScreen.RunAsync(settings, app, runner, steps) is { } result)
+                    if (await StepsScreen.RunAsync(settings, app, runner, steps, proposed: true) is { } result)
                     {
                         session.AddRun(steps, result);
                     }

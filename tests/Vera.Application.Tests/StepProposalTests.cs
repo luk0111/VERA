@@ -147,6 +147,7 @@ public sealed class StepProposalTests
     [InlineData("press enter", true)]
     [InlineData("press ctrl+s", true)]
     [InlineData("press delete", true)]
+    [InlineData("press alt+f4", true)]
     [InlineData("press tab", false)]
     [InlineData("click the Delete button", true)]
     [InlineData("click the search field", false)]
@@ -157,5 +158,27 @@ public sealed class StepProposalTests
     public void Steps_that_may_change_or_send_something_deserve_a_look(string line, bool expected)
     {
         StepProposal.DeservesALook(StepParser.Parse(line)!).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("click the Pay now button")]
+    [InlineData("click Send")]
+    [InlineData("click the Uninstall button")]
+    [InlineData("drag the note to Delete account")]
+    public void A_proposal_that_would_do_something_VERA_never_does_is_refused(string line)
+    {
+        var proposal = StepProposal.Read($"<steps>\nclick the search field\n{line}\nexpect the results\n</steps>", Keys);
+
+        proposal.Steps.ShouldBeEmpty();
+        proposal.Problem.ShouldNotBeNull().ShouldStartWith($"\"{line}\" would ");
+    }
+
+    [Fact]
+    public void The_never_do_list_comes_from_the_rules()
+    {
+        var rules = new RiskRules(["approve"], [], []);
+
+        StepProposal.Read("<steps>\nclick Pay\nexpect the receipt\n</steps>", Keys, rules).Problem.ShouldBeNull();
+        StepProposal.Read("<steps>\nclick Approve\nexpect the receipt\n</steps>", Keys, rules).Problem.ShouldNotBeNull();
     }
 }

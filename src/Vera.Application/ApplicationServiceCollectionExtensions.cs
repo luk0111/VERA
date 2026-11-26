@@ -30,8 +30,9 @@ public static class ApplicationServiceCollectionExtensions
     /// (on Windows, the screen reads <c>VeraInput</c> in config) and <see cref="FindElementService"/> (transient for the default profile, plus a
     /// <see cref="Func{T, TResult}"/> that creates one for any profile name), which saves its screenshots under <c>runs/find</c>,
     /// and <see cref="StepRunner"/> (the same way as Find: the model finds each element), which saves its screenshots under <c>runs/steps</c>.
+    /// Reads the <c>Safety</c> section into the <see cref="RiskRules"/> runs use, also registered for the console app.
     /// </summary>
-    /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or a profile is missing or invalid.</exception>
+    /// <exception cref="VeraConfigurationException">The <c>Llm</c> section or a profile is missing or invalid, or the <c>Files</c> or <c>Safety</c> section is invalid.</exception>
     public static IServiceCollection AddVeraApplication(this IServiceCollection services, IConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -66,6 +67,8 @@ public static class ApplicationServiceCollectionExtensions
             .ToList());
         CheckFilesSection(config);
         services.AddVeraFiles(config);
+        var rules = RiskRules.FromConfig(config);
+        services.AddSingleton(rules);
         services.AddTransient<ChatSession>();
         services.AddSingleton<Func<string, ChatSession>>(sp => name => new ChatSession(
             sp.GetRequiredKeyedService<IChatClient>(name),
@@ -89,10 +92,10 @@ public static class ApplicationServiceCollectionExtensions
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find"), sp.GetRequiredService<IFrontWindow>()));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), rules: rules));
         services.AddSingleton<Func<string, StepRunner>>(sp => name => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), sp.GetRequiredService<ISecretStore>(),
-            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>()));
+            Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), rules: rules));
         services.AddSingleton(new StepFileStore("steps"));
         return services;
     }
