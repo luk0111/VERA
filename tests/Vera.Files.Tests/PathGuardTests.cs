@@ -138,4 +138,102 @@ public sealed class PathGuardTests : IDisposable
 
         PathGuard.Resolve(path).ShouldBe(path);
     }
+
+    [Fact]
+    public void A_link_to_a_secret_file_is_not_allowed()
+    {
+        var secret = Create(@".ssh\config");
+        var link = Path.Combine(_root, "notes.txt");
+        Link(() => File.CreateSymbolicLink(link, secret));
+
+        ErrorOf(() => PathGuard.Resolve(link)).ShouldBe(FileAccessError.NotAllowed);
+    }
+
+    [Fact]
+    public void A_linked_folder_that_leads_into_a_secret_one_is_not_allowed()
+    {
+        Create(@".ssh\config");
+        Link(() => Directory.CreateSymbolicLink(Path.Combine(_root, "keys"), Path.Combine(_root, ".ssh")));
+
+        ErrorOf(() => PathGuard.Resolve(Path.Combine(_root, "keys", "config"))).ShouldBe(FileAccessError.NotAllowed);
+    }
+
+    [Fact]
+    public void A_junction_that_leads_into_a_secret_folder_is_not_allowed()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Junctions are a Windows form.");
+        Create(@".git\config");
+        var junction = Path.Combine(_root, "docs");
+
+        // Unlike a symbolic link, a junction needs no special rights.
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", ["/c", "mklink", "/J", junction, Path.Combine(_root, ".git")])
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true,
+        })!)
+        {
+            mklink.WaitForExit();
+            Assert.SkipUnless(mklink.ExitCode == 0, "Could not make a junction here.");
+        }
+
+        try
+        {
+            ErrorOf(() => PathGuard.Resolve(Path.Combine(junction, "config"))).ShouldBe(FileAccessError.NotAllowed);
+        }
+        finally
+        {
+            // Removes the junction, not the folder it leads to; a recursive delete of the test folder can't.
+            Directory.Delete(junction);
+        }
+    }
+
+    [Fact]
+    public void A_short_name_for_a_secret_folder_is_not_allowed()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Short names are a Windows form.");
+        Create(@".ssh\config");
+        var shortName = Path.Combine(_root, "SSH~1");
+        Assert.SkipUnless(Directory.Exists(shortName), "This drive has no short names.");
+
+        ErrorOf(() => PathGuard.Resolve(Path.Combine(shortName, "config"))).ShouldBe(FileAccessError.NotAllowed);
+    }
+
+    [Fact]
+    public void A_loop_of_links_is_not_allowed()
+    {
+        var first = Path.Combine(_root, "a");
+        var second = Path.Combine(_root, "b");
+        Link(() =>
+        {
+            Directory.CreateSymbolicLink(first, second);
+            Directory.CreateSymbolicLink(second, first);
+        });
+        Create("notes.txt");
+
+        Should.Throw<FileAccessException>(() => PathGuard.Resolve(Path.Combine(first, "notes.txt")));
+    }
+
+    [Fact]
+    public void A_link_to_a_normal_file_is_allowed()
+    {
+        var notes = Create("notes.txt");
+        var link = Path.Combine(_root, "today.txt");
+        Link(() => File.CreateSymbolicLink(link, notes));
+
+        PathGuard.Resolve(link).ShouldBe(link);
+    }
+
+    // Windows lets only administrators and Developer Mode make symbolic links.
+    private static void Link(Action create)
+    {
+        try
+        {
+            create();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Assert.Skip($"Could not make a symbolic link here: {e.Message}");
+        }
+    }
 }
