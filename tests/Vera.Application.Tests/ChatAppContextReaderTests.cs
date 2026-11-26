@@ -32,6 +32,40 @@ public sealed class ChatAppContextReaderTests
         app.Problem.ShouldBeNull();
     }
 
+    // #44: the adapter tells an app's windows apart by the picked title, as Find and the steps runner already asked it to.
+    [Fact]
+    public async Task The_adapter_is_told_the_picked_windows_title()
+    {
+        ScreenShows("Fresh title", Window);
+
+        await NewReader().ReadAsync(1234, "brave.exe", "Picker title", Ct);
+
+        await _adapter.Received(1).StartAsync(Arg.Is<AppTarget>(t => t.Name == "Picker title"), Arg.Any<CancellationToken>());
+    }
+
+    // #58: every read brings the app to the front; the tester's window must come back, also when the window couldn't be read.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task VERAs_window_comes_back_after_each_read(bool readWorks)
+    {
+        var window = new FrontWindow(77);
+        var front = Substitute.For<IFrontWindow>();
+        front.Current().Returns(window);
+        if (readWorks)
+        {
+            ScreenShows("Fresh title", Window);
+        }
+        else
+        {
+            _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Task.FromException<ScreenState>(new InvalidOperationException("gone")));
+        }
+
+        await new ChatAppContextReader(() => _adapter, _runningApps, front).ReadAsync(1234, "Notepad", "Picker title", Ct);
+
+        await front.Received(1).BringBackAsync(window, CancellationToken.None);
+    }
+
     [Fact]
     public async Task The_title_read_now_wins_over_the_one_from_the_picker()
     {

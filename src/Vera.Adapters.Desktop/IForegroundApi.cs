@@ -4,8 +4,8 @@ namespace Vera.Adapters.Desktop;
 internal interface IForegroundApi
 {
     /// <summary>
-    /// Whether the window in front belongs to <paramref name="window"/>'s process.
-    /// Compares processes, not windows: a dialog of the app counts as the app, and bringing the main window forward would take the focus from it.
+    /// Whether <paramref name="window"/> or something of its own is in front: a dialog of the app counts as the app, and bringing the main window
+    /// forward would take the focus from it. Another main window of the same process, e.g. a second browser window, does not count (#44).
     /// </summary>
     bool IsInFront(nint window);
 

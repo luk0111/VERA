@@ -17,12 +17,14 @@ public static class MacAdapterServiceCollectionExtensions
         services.AddSingleton<MacScreen>();
         services.AddSingleton<IScreen>(sp => sp.GetRequiredService<MacScreen>());
         services.AddSingleton<IScreenshotSource>(sp => sp.GetRequiredService<MacScreen>());
+        services.AddSingleton<MacPickedWindows>();
         services.AddSingleton<IRunningAppSource, MacRunningApps>();
         services.AddSingleton<IFrontWindow, MacFrontWindow>();
         services.AddSingleton<Func<IAppAdapter>>(sp =>
         {
             var screen = sp.GetRequiredService<IScreen>();
-            return () => new MacAdapter(screen);
+            var picked = sp.GetRequiredService<MacPickedWindows>();
+            return () => new MacAdapter(screen, picked);
         });
         return services;
     }

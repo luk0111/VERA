@@ -84,11 +84,11 @@ public static class ApplicationServiceCollectionExtensions
 #endif
         services.AddSingleton<SecretTrail>();
         services.AddTransient(sp => new ChatAppContextReader(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>(), sp.GetRequiredService<SecretTrail>()));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<IRunningAppSource>(), sp.GetRequiredService<IFrontWindow>(), sp.GetRequiredService<SecretTrail>()));
         services.AddTransient(sp => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find"), sp.GetRequiredService<SecretTrail>()));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), Path.Combine("runs", "find"), sp.GetRequiredService<IFrontWindow>(), sp.GetRequiredService<SecretTrail>()));
         services.AddSingleton<Func<string, FindElementService>>(sp => name => new FindElementService(
-            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find"), sp.GetRequiredService<SecretTrail>()));
+            sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredKeyedService<ILlmClient>(name), Path.Combine("runs", "find"), sp.GetRequiredService<IFrontWindow>(), sp.GetRequiredService<SecretTrail>()));
         services.AddTransient(sp => new StepRunner(
             sp.GetRequiredService<Func<IAppAdapter>>(), sp.GetRequiredService<ILlmClient>(), sp.GetRequiredService<ISecretStore>(),
             Path.Combine("runs", "steps"), StepRunner.DefaultPause, front: sp.GetRequiredService<IFrontWindow>(), apiKeyNames: apiKeyNames,
