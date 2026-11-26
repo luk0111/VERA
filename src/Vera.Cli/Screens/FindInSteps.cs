@@ -173,7 +173,6 @@ internal static class FindInSteps
         {
             var element = await AnsiConsole.Status().StartAsync(status, _ => act());
             AnsiConsole.MarkupLine($"[green]{Markup.Escape(done(element))}[/]");
-            AnsiConsole.MarkupLine("[grey]The app is in front now. Click back into this window to continue.[/]");
         }
 #pragma warning disable CA1031 // A failed action is shown on screen; the screen itself must stay open.
         catch (Exception e)

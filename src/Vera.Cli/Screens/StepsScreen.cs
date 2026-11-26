@@ -796,7 +796,6 @@ internal static class StepsScreen
         };
         AnsiConsole.MarkupLine($"{verdict}: {done} of {steps.Count} steps done.");
         AnsiConsole.MarkupLine($"[grey]Screenshots: {Markup.Escape(result.Folder)}[/]");
-        AnsiConsole.MarkupLine("[grey]Click back into this window to continue.[/]");
         AnsiConsole.WriteLine();
         return result;
     }

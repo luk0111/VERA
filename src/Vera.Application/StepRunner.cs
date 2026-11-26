@@ -17,7 +17,7 @@ namespace Vera.Application;
 /// </summary>
 /// <param name="pause">How long the app gets to react after each click, type or key press.</param>
 /// <param name="wait">How long a step waits for the app; <see cref="DefaultWait"/> when null. Zero reads once.</param>
-/// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step. Null leaves the app in front.</param>
+/// <param name="front">Brings the window that was in front when the run started, VERA's own, back to ask about a risky step and when the run ends (#58). Null leaves the app in front.</param>
 public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISecretStore secrets, string outputDirectory, TimeSpan pause, TimeSpan? wait = null, IFrontWindow? front = null)
 {
     /// <summary>The pause after each action in the app.</summary>
@@ -121,6 +121,9 @@ public sealed class StepRunner(Func<IAppAdapter> newAdapter, ILlmClient llm, ISe
                 }
             }
         }
+
+        // Back to VERA's window, so the tester can read the result and type again without clicking it (#58).
+        await FocusReturn.BringBackAsync(front, asksIn).ConfigureAwait(false);
 
         var verdict = stoppedBy is not null || stoppedByTester ? Verdict.Inconclusive : results.LastOrDefault()?.Outcome switch
         {
