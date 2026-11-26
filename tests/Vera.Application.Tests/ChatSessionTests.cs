@@ -668,6 +668,60 @@ public sealed class ChatSessionTests
     private static UiElement Element(int id, string role, string name) =>
         new(id, role, name, new ScreenRect(0, 0, 10, 10), true, $"loc{id}");
 
+    [Fact]
+    public async Task Without_a_context_size_nothing_is_dropped()
+    {
+        var session = NewSession(new FakeChatClient(new string('a', 50_000)));
+
+        await DrainAsync(session.StreamReplyAsync(new string('q', 50_000), Ct));
+        await DrainAsync(session.StreamReplyAsync("again", Ct));
+
+        session.DroppedForRoom.ShouldBe(0);
+        session.History.Count.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task When_the_chat_no_longer_fits_the_oldest_question_and_reply_are_dropped_together()
+    {
+        // 1000 tokens is about 3200 characters with room for the reply.
+        var session = new ChatSession(
+            new FakeChatClient(new string('r', 1000)), Profile with { ContextSize = 1000 }, Substitute.For<IConnectionChecker>(), Substitute.For<IFileReader>());
+
+        await DrainAsync(session.StreamReplyAsync(new string('1', 1000), Ct));
+        session.DroppedForRoom.ShouldBe(0);
+        await DrainAsync(session.StreamReplyAsync(new string('2', 1000), Ct));
+
+        session.DroppedForRoom.ShouldBe(2);
+        session.History.Select(m => m.Role).ShouldBe([ChatRole.System, ChatRole.User, ChatRole.Assistant]);
+        session.History[1].Text.ShouldStartWith("2");
+    }
+
+    [Fact]
+    public async Task The_newest_message_and_the_rules_stay_even_when_they_alone_are_too_long()
+    {
+        var session = new ChatSession(
+            new FakeChatClient("ok"), Profile with { ContextSize = 100 }, Substitute.For<IConnectionChecker>(), Substitute.For<IFileReader>());
+
+        await DrainAsync(session.StreamReplyAsync(new string('q', 5000), Ct));
+
+        session.History.Select(m => m.Role).ShouldBe([ChatRole.System, ChatRole.User, ChatRole.Assistant]);
+    }
+
+    [Fact]
+    public void Reading_the_window_again_keeps_only_the_latest_note()
+    {
+        var session = NewSession(new FakeChatClient());
+        var app = new ChatAppContext(1, "Notepad", "a.txt - Notepad", []);
+        session.SetApp(app);
+        session.AddRun([], new StepRunResult(Verdict.Passed, [], "runs", null));
+
+        session.SetApp(app with { WindowTitle = "b.txt - Notepad" });
+        session.SetApp(app with { WindowTitle = "c.txt - Notepad" });
+
+        session.History.Count(m => m.Text == ChatSession.WindowChangedNote).ShouldBe(1);
+        session.History[^1].Text.ShouldBe(ChatSession.WindowChangedNote);
+    }
+
     private static ChatSession NewSession(IChatClient client, IFileReader? files = null) =>
         new(client, Profile, Substitute.For<IConnectionChecker>(), files ?? Substitute.For<IFileReader>());
 
