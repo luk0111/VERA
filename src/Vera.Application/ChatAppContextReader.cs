@@ -7,8 +7,11 @@ namespace Vera.Application;
 /// and notices when the window's title changes, e.g. when the tester switches to another browser tab.
 /// </summary>
 /// <param name="front">Gives VERA's window the front back after each read (#58); null leaves the app in front.</param>
-public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningAppSource runningApps, IFrontWindow? front = null)
+/// <param name="trail">Keeps the secrets a steps run typed out of what the model is told; a new, empty one when null.</param>
+public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningAppSource runningApps, IFrontWindow? front = null, SecretTrail? trail = null)
 {
+    private readonly SecretTrail _trail = trail ?? new SecretTrail();
+
     /// <summary>
     /// Attaches to the process and reads its window. Never fails because of the app:
     /// when the window is gone or minimized, the context has no elements and says why in <see cref="ChatAppContext.Problem"/>.
@@ -30,7 +33,7 @@ public sealed class ChatAppContextReader(Func<IAppAdapter> newAdapter, IRunningA
             await using (adapter.ConfigureAwait(false))
             {
                 await adapter.StartAsync(target, ct).ConfigureAwait(false);
-                screen = await adapter.GetScreenStateAsync(ct).ConfigureAwait(false);
+                screen = _trail.Hide(processId, await adapter.GetScreenStateAsync(ct).ConfigureAwait(false));
             }
 
             // The title read now is fresher than the one from the picker, e.g. after a file was opened.

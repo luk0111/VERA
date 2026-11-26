@@ -52,6 +52,21 @@ public sealed class FindElementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_secret_typed_by_a_run_is_hidden_from_the_model()
+    {
+        var trail = new SecretTrail();
+        trail.Typed(1234, LogIn, ["s3cret"]);
+        _adapter.GetScreenStateAsync(Arg.Any<CancellationToken>()).Returns(Screen(Window, LogIn with { Name = "Log in as s3cret" }));
+        ModelAnswers(new AgentAction(AgentActionType.Click, 7, null, "It says Log in"));
+
+        var result = await new FindElementService(() => _adapter, _llm, _output, trail: trail).FindAsync(1234, "App", "Log in button", Ct);
+
+        result.Element.ShouldNotBeNull().Name.ShouldBe("Log in as ***");
+        await _llm.Received(1).DecideNextActionAsync(
+            Arg.Any<TestTask>(), Arg.Is<ScreenState>(s => s.Elements.All(e => !e.Name.Contains("s3cret"))), Arg.Any<IReadOnlyList<AgentStep>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task A_fail_answer_is_not_found_with_the_models_reason()
     {
         ModelAnswers(new AgentAction(AgentActionType.Fail, null, null, "No such button"));
